@@ -7,3 +7,4 @@ SQLAlchemy>=2.0.30
 faiss-cpu>=1.8.0.post1
 sentence-transformers>=3.0.1
 python-multipart>=0.0.9
+pytest>=7.4.0

@@ -2,6 +2,10 @@
 sidecar.db
 *.db
 
+# FAISS index files
+data/indexes/*.faiss
+data/indexes/*.pkl
+
 # Virtual environment
 .venv/
 venv/

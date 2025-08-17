@@ -68,6 +68,19 @@ class Database:
             out.append(cur.lastrowid)
         return out
 
+    def fetch_chunks_by_ids(self, chunk_ids: list[int]):
+        if not chunk_ids:
+            return []
+        placeholders = ",".join("?" for _ in chunk_ids)  # parameterized, not interpolated
+        q = f"""
+        SELECT c.id as chunk_id, c.text, c.start_char, c.end_char,
+               d.id as doc_id, d.title, d.doc_type
+        FROM chunk c
+        JOIN document d ON d.id = c.document_id
+        WHERE c.id IN ({placeholders})
+        """
+        return self.conn.execute(q, chunk_ids).fetchall()
+
     def fetch_chunks_by_faiss_indices(self, faiss_indices: list, index_name: str):
         if not faiss_indices:
             return {}
