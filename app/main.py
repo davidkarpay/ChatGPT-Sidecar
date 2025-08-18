@@ -4,12 +4,15 @@ import logging
 import functools
 import json
 import numpy as np
+import uuid
 from pathlib import Path
 from fastapi import FastAPI, Depends, HTTPException, Header
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, conint, confloat
+from typing import Optional, List, Dict
 from dotenv import load_dotenv
+from sse_starlette.sse import EventSourceResponse
 
 from .db import DB
 from .vectorstore import FaissStore
@@ -17,6 +20,8 @@ from .ingest_chatgpt import ingest_export
 from .ingest_multi_layer import ingest_export_multi_layer
 from .search_fusion import MultiLayerSearchFusion
 from .mmr import mmr
+from .rag_pipeline import RAGPipeline
+from .chat_agent import ChatConfig
 
 load_dotenv()
 
@@ -55,6 +60,25 @@ store.load()
 
 # Multi-layer search fusion
 fusion_search = MultiLayerSearchFusion(DB_PATH, EMBED_MODEL)
+
+# Chat configuration (lazy loading)
+chat_config = ChatConfig(
+    model_name=os.getenv("CHAT_MODEL", "EleutherAI/gpt-j-6B"),
+    max_context_length=int(os.getenv("CHAT_MAX_CONTEXT", "2048")),
+    max_new_tokens=int(os.getenv("CHAT_MAX_TOKENS", "512")),
+    temperature=float(os.getenv("CHAT_TEMPERATURE", "0.7")),
+    use_8bit=os.getenv("CHAT_USE_8BIT", "true").lower() == "true"
+)
+
+# Global RAG pipeline instance (initialized on first use)
+rag_pipeline = None
+
+def get_rag_pipeline():
+    """Get or initialize RAG pipeline (lazy loading)"""
+    global rag_pipeline
+    if rag_pipeline is None:
+        rag_pipeline = RAGPipeline(DB_PATH, EMBED_MODEL, chat_config)
+    return rag_pipeline
 
 # Caching: query embedding only (small, string-key)
 @functools.lru_cache(maxsize=256)
@@ -105,10 +129,41 @@ class IngestReq(BaseModel):
 class ReindexReq(BaseModel):
     index_name: str = "main"
 
+class ChatReq(BaseModel):
+    query: str = Field(min_length=1)
+    session_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    k: conint(ge=1, le=20) = Field(default=5)
+    search_mode: str = Field(default="adaptive", pattern="^(adaptive|multi_layer|basic)$")
+
+class ChatStreamReq(BaseModel):
+    query: str = Field(min_length=1)
+    session_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    k: conint(ge=1, le=20) = Field(default=5)
+    search_mode: str = Field(default="adaptive", pattern="^(adaptive|multi_layer|basic)$")
+
+class AnalyzeReq(BaseModel):
+    doc_ids: Optional[List[int]] = None
+    limit: conint(ge=10, le=500) = Field(default=100)
+
+class SuggestionsReq(BaseModel):
+    query: str
+    results: List[dict] = Field(default_factory=list)
+
+class ConversationReq(BaseModel):
+    session_id: str
+
 @app.get("/")
 async def root():
-    """Serve the web UI"""
+    """Serve the search UI"""
     html_path = Path(__file__).resolve().parent.parent / "static" / "index.html"
+    with open(html_path, "r") as f:
+        content = f.read()
+    return HTMLResponse(content=content)
+
+@app.get("/chat")
+async def chat_ui():
+    """Serve the chat UI"""
+    html_path = Path(__file__).resolve().parent.parent / "static" / "chat.html"
     with open(html_path, "r") as f:
         content = f.read()
     return HTMLResponse(content=content)
@@ -270,3 +325,110 @@ async def reindex_multi_layer():
         "layer_results": results,
         "total_vectors": sum(r["vectors"] for r in results.values() if "vectors" in r)
     }
+
+@app.post("/chat", dependencies=[Depends(auth)])
+async def chat(req: ChatReq):
+    """Chat with your ChatGPT export data using GPT-J"""
+    t0 = time.time()
+    try:
+        result = get_rag_pipeline().chat(
+            query=req.query,
+            session_id=req.session_id,
+            k=req.k,
+            search_mode=req.search_mode,
+            stream=False
+        )
+        
+        # Add follow-up suggestions
+        suggestions = get_rag_pipeline().suggest_follow_up_questions(req.query, result["context"])
+        result["suggestions"] = suggestions
+        
+        return result
+    
+    except Exception as e:
+        logging.exception("Chat error: %s", e)
+        raise HTTPException(status_code=500, detail="Chat processing error")
+    finally:
+        logging.info("chat dur=%.3fs", time.time() - t0)
+
+@app.post("/chat/stream", dependencies=[Depends(auth)])
+async def chat_stream(req: ChatStreamReq):
+    """Stream chat responses for real-time interaction"""
+    try:
+        result = get_rag_pipeline().chat(
+            query=req.query,
+            session_id=req.session_id,
+            k=req.k,
+            search_mode=req.search_mode,
+            stream=True
+        )
+        
+        async def generate():
+            # First send context
+            yield f"data: {json.dumps({'type': 'context', 'data': result['context']})}\n\n"
+            yield f"data: {json.dumps({'type': 'session_id', 'data': result['session_id']})}\n\n"
+            
+            # Then stream the response
+            for token in result["response_generator"]:
+                yield f"data: {json.dumps({'type': 'token', 'data': token})}\n\n"
+            
+            # Finally send suggestions
+            suggestions = get_rag_pipeline().suggest_follow_up_questions(req.query, result["context"])
+            yield f"data: {json.dumps({'type': 'suggestions', 'data': suggestions})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        
+        return EventSourceResponse(generate())
+    
+    except Exception as e:
+        logging.exception("Chat stream error: %s", e)
+        raise HTTPException(status_code=500, detail="Chat streaming error")
+
+@app.post("/analyze", dependencies=[Depends(auth)])
+async def analyze_topics(req: AnalyzeReq):
+    """Analyze topics across conversations"""
+    try:
+        result = get_rag_pipeline().analyze_conversation_topics(req.doc_ids, req.limit)
+        return result
+    except Exception as e:
+        logging.exception("Analysis error: %s", e)
+        raise HTTPException(status_code=500, detail="Analysis error")
+
+@app.post("/suggest", dependencies=[Depends(auth)])
+async def suggest_questions(req: SuggestionsReq):
+    """Get follow-up question suggestions"""
+    try:
+        suggestions = get_rag_pipeline().suggest_follow_up_questions(req.query, req.results)
+        return {"suggestions": suggestions}
+    except Exception as e:
+        logging.exception("Suggestions error: %s", e)
+        raise HTTPException(status_code=500, detail="Suggestions error")
+
+@app.get("/chat/history/{session_id}", dependencies=[Depends(auth)])
+async def get_chat_history(session_id: str):
+    """Get conversation history for a session"""
+    try:
+        history = get_rag_pipeline().get_conversation_history(session_id)
+        return {"session_id": session_id, "history": history}
+    except Exception as e:
+        logging.exception("History error: %s", e)
+        raise HTTPException(status_code=500, detail="History retrieval error")
+
+@app.delete("/chat/history/{session_id}", dependencies=[Depends(auth)])
+async def clear_chat_history(session_id: str):
+    """Clear conversation history for a session"""
+    try:
+        get_rag_pipeline().clear_conversation_history(session_id)
+        return {"message": "History cleared", "session_id": session_id}
+    except Exception as e:
+        logging.exception("History clear error: %s", e)
+        raise HTTPException(status_code=500, detail="History clear error")
+
+@app.get("/summarize/{doc_id}", dependencies=[Depends(auth)])
+async def summarize_conversation(doc_id: int):
+    """Get AI-generated summary of a specific conversation"""
+    try:
+        summary = get_rag_pipeline().get_conversation_summary(doc_id)
+        return {"doc_id": doc_id, "summary": summary}
+    except Exception as e:
+        logging.exception("Summarization error: %s", e)
+        raise HTTPException(status_code=500, detail="Summarization error")

@@ -18,11 +18,30 @@ uvicorn app.main:app --host 127.0.0.1 --port 8088 --reload
 Copy `.env.example` to `.env` and adjust values.
 
 ## Web UI
-Open `http://127.0.0.1:8088/` in a browser. Enter your API key, type a query, and click **Search** (FAISS top-k) or **Advanced** (MMR rerank).
-- **Copy context** copies a JSON block ready to paste into ChatGPT as grounding.
-- Advanced params:
-  - `candidates` (default 50, max 200): FAISS candidate pool size
-  - `lambda` (default 0.5, 0..1): MMR tradeoff (0=diversity, 1=similarity)
+
+### Enhanced Search Interface
+Open `http://127.0.0.1:8088/static/index_enhanced.html` for the full-featured search experience with:
+
+- **4 Search Modes**: Basic, Advanced MMR, Multi-Layer, Specific Layer
+- **Smart Result Display**: Term highlighting, relevance scores, context preview
+- **Copy Context**: JSON format optimized for ChatGPT integration
+- **Real-time Parameters**: Adjust search behavior on-the-fly
+
+### Legacy Interface
+Open `http://127.0.0.1:8088/` for the basic interface with essential search functionality.
+
+### Search Parameters
+- **k** (results): Number of results to return (1-30)
+- **candidates** (MMR): FAISS candidate pool size (10-200, default: 50)  
+- **lambda** (MMR): Relevance vs diversity (0.0-1.0, default: 0.5)
+  - Higher λ = more relevant, potentially similar results
+  - Lower λ = more diverse, potentially broader results
+
+## 📚 Documentation
+
+- **[User Guide](docs/user-guide.md)**: Complete interface walkthrough and features
+- **[Effective Search Queries](docs/effective-search-queries.md)**: Writing better search queries  
+- **[Quick Reference](docs/quick-reference.md)**: Fast lookup for common tasks
 
 ## API Endpoints
 - `GET /healthz` — Health check
