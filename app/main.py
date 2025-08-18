@@ -67,7 +67,8 @@ chat_config = ChatConfig(
     max_context_length=int(os.getenv("CHAT_MAX_CONTEXT", "2048")),
     max_new_tokens=int(os.getenv("CHAT_MAX_TOKENS", "512")),
     temperature=float(os.getenv("CHAT_TEMPERATURE", "0.7")),
-    use_8bit=os.getenv("CHAT_USE_8BIT", "true").lower() == "true"
+    use_8bit=os.getenv("CHAT_USE_8BIT", "true").lower() == "true",
+    device=os.getenv("CHAT_DEVICE", None)  # If None, ChatConfig will auto-detect
 )
 
 # Global RAG pipeline instance (initialized on first use)
@@ -171,6 +172,48 @@ async def chat_ui():
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
+
+@app.get("/healthz/chat")
+async def chat_health():
+    """Health check specifically for chat model availability"""
+    try:
+        # Check if RAG pipeline can be initialized
+        pipeline = get_rag_pipeline()
+        
+        # Try to get the chat agent (this will trigger lazy loading if needed)
+        chat_agent = await pipeline._get_chat_agent()
+        
+        # Basic model info
+        model_info = {
+            "model_loaded": chat_agent.model is not None,
+            "tokenizer_loaded": chat_agent.tokenizer is not None,
+            "model_name": chat_agent.config.model_name,
+            "device": chat_agent.config.device,
+        }
+        
+        return {
+            "ok": True,
+            "chat_available": True,
+            "model_info": model_info,
+            "openmp_settings": {
+                "OMP_NUM_THREADS": os.getenv("OMP_NUM_THREADS"),
+                "MKL_NUM_THREADS": os.getenv("MKL_NUM_THREADS"),
+                "TOKENIZERS_PARALLELISM": os.getenv("TOKENIZERS_PARALLELISM")
+            }
+        }
+        
+    except Exception as e:
+        logging.error(f"Chat health check failed: {e}")
+        return {
+            "ok": False,
+            "chat_available": False,
+            "error": str(e),
+            "openmp_settings": {
+                "OMP_NUM_THREADS": os.getenv("OMP_NUM_THREADS"),
+                "MKL_NUM_THREADS": os.getenv("MKL_NUM_THREADS"),
+                "TOKENIZERS_PARALLELISM": os.getenv("TOKENIZERS_PARALLELISM")
+            }
+        }
 
 @app.post("/search", dependencies=[Depends(auth)])
 async def search(req: SearchReq):
@@ -331,7 +374,7 @@ async def chat(req: ChatReq):
     """Chat with your ChatGPT export data using GPT-J"""
     t0 = time.time()
     try:
-        result = get_rag_pipeline().chat(
+        result = await get_rag_pipeline().chat_async(
             query=req.query,
             session_id=req.session_id,
             k=req.k,
@@ -345,9 +388,27 @@ async def chat(req: ChatReq):
         
         return result
     
+    except RuntimeError as e:
+        if "model loading" in str(e).lower():
+            logging.error("Model loading failed completely: %s", e)
+            raise HTTPException(
+                status_code=503, 
+                detail="Chat model is temporarily unavailable. Please try again later or contact support."
+            )
+        else:
+            logging.exception("Runtime error in chat: %s", e)
+            raise HTTPException(status_code=500, detail="Chat processing error")
+    
     except Exception as e:
         logging.exception("Chat error: %s", e)
-        raise HTTPException(status_code=500, detail="Chat processing error")
+        # Check if it's an OpenMP/threading related error
+        if any(keyword in str(e).lower() for keyword in ['openmp', 'omp', 'thread', 'segmentation']):
+            raise HTTPException(
+                status_code=503,
+                detail="Chat service is experiencing threading issues. Server restart may be required."
+            )
+        else:
+            raise HTTPException(status_code=500, detail="Chat processing error")
     finally:
         logging.info("chat dur=%.3fs", time.time() - t0)
 
@@ -355,7 +416,7 @@ async def chat(req: ChatReq):
 async def chat_stream(req: ChatStreamReq):
     """Stream chat responses for real-time interaction"""
     try:
-        result = get_rag_pipeline().chat(
+        result = await get_rag_pipeline().chat_async(
             query=req.query,
             session_id=req.session_id,
             k=req.k,
@@ -364,24 +425,47 @@ async def chat_stream(req: ChatStreamReq):
         )
         
         async def generate():
-            # First send context
-            yield f"data: {json.dumps({'type': 'context', 'data': result['context']})}\n\n"
-            yield f"data: {json.dumps({'type': 'session_id', 'data': result['session_id']})}\n\n"
-            
-            # Then stream the response
-            for token in result["response_generator"]:
-                yield f"data: {json.dumps({'type': 'token', 'data': token})}\n\n"
-            
-            # Finally send suggestions
-            suggestions = get_rag_pipeline().suggest_follow_up_questions(req.query, result["context"])
-            yield f"data: {json.dumps({'type': 'suggestions', 'data': suggestions})}\n\n"
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            try:
+                # First send context
+                yield f"data: {json.dumps({'type': 'context', 'data': result['context']})}\n\n"
+                yield f"data: {json.dumps({'type': 'session_id', 'data': result['session_id']})}\n\n"
+                
+                # Then stream the response
+                for token in result["response_generator"]:
+                    yield f"data: {json.dumps({'type': 'token', 'data': token})}\n\n"
+                
+                # Finally send suggestions
+                suggestions = get_rag_pipeline().suggest_follow_up_questions(req.query, result["context"])
+                yield f"data: {json.dumps({'type': 'suggestions', 'data': suggestions})}\n\n"
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                
+            except Exception as e:
+                logging.error(f"Error during streaming: {e}")
+                error_msg = {"type": "error", "data": "Streaming interrupted due to model error"}
+                yield f"data: {json.dumps(error_msg)}\n\n"
         
         return EventSourceResponse(generate())
     
+    except RuntimeError as e:
+        if "model loading" in str(e).lower():
+            logging.error("Model loading failed in streaming: %s", e)
+            raise HTTPException(
+                status_code=503, 
+                detail="Chat model is temporarily unavailable for streaming."
+            )
+        else:
+            logging.exception("Runtime error in chat streaming: %s", e)
+            raise HTTPException(status_code=500, detail="Chat streaming error")
+    
     except Exception as e:
         logging.exception("Chat stream error: %s", e)
-        raise HTTPException(status_code=500, detail="Chat streaming error")
+        if any(keyword in str(e).lower() for keyword in ['openmp', 'omp', 'thread', 'segmentation']):
+            raise HTTPException(
+                status_code=503,
+                detail="Chat streaming service is experiencing threading issues."
+            )
+        else:
+            raise HTTPException(status_code=500, detail="Chat streaming error")
 
 @app.post("/analyze", dependencies=[Depends(auth)])
 async def analyze_topics(req: AnalyzeReq):

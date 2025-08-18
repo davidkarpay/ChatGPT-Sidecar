@@ -1,5 +1,8 @@
 import logging
 import uuid
+import asyncio
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Any
 from .db import DB
 from .vectorstore import FaissStore
@@ -13,7 +16,11 @@ class RAGPipeline:
     def __init__(self, db_path: str, embed_model: str, chat_config: Optional[ChatConfig] = None):
         self.db_path = db_path
         self.embed_model = embed_model
-        self.chat_agent = ChatAgent(chat_config)
+        self.chat_config = chat_config
+        self.chat_agent = None  # Lazy loading
+        self._chat_agent_loading = False
+        self._chat_agent_lock = threading.Lock()
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="chat_model")
         
         self.main_store = None
         self.precision_store = None
@@ -61,6 +68,62 @@ class RAGPipeline:
                 
         except Exception as e:
             logger.warning(f"Could not load all vector stores: {e}")
+    
+    def _load_chat_agent_sync(self) -> ChatAgent:
+        """Synchronous chat agent loading (runs in thread pool)"""
+        logger.info("Loading chat agent in background thread...")
+        return ChatAgent(self.chat_config)
+    
+    async def _get_chat_agent(self) -> ChatAgent:
+        """Async lazy load the chat agent to prevent server blocking"""
+        if self.chat_agent is not None:
+            return self.chat_agent
+            
+        with self._chat_agent_lock:
+            # Double-check pattern
+            if self.chat_agent is not None:
+                return self.chat_agent
+                
+            if self._chat_agent_loading:
+                # Wait for another thread to finish loading
+                while self._chat_agent_loading and self.chat_agent is None:
+                    await asyncio.sleep(0.1)
+                if self.chat_agent is not None:
+                    return self.chat_agent
+                    
+            self._chat_agent_loading = True
+            
+        try:
+            logger.info("Initializing chat agent asynchronously...")
+            # Load model in thread pool with timeout
+            loop = asyncio.get_event_loop()
+            self.chat_agent = await asyncio.wait_for(
+                loop.run_in_executor(self._executor, self._load_chat_agent_sync),
+                timeout=60.0  # 60 second timeout
+            )
+            logger.info("Chat agent initialized successfully")
+            return self.chat_agent
+            
+        except asyncio.TimeoutError:
+            logger.error("Chat agent loading timed out after 60 seconds")
+            raise Exception("Chat agent loading timed out")
+        except Exception as e:
+            logger.error(f"Failed to initialize chat agent: {e}")
+            raise
+        finally:
+            self._chat_agent_loading = False
+    
+    def _get_chat_agent_sync(self) -> ChatAgent:
+        """Synchronous version for backwards compatibility"""
+        if self.chat_agent is None:
+            logger.info("Initializing chat agent synchronously...")
+            try:
+                self.chat_agent = ChatAgent(self.chat_config)
+                logger.info("Chat agent initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize chat agent: {e}")
+                raise
+        return self.chat_agent
     
     def search_with_context(
         self, 
@@ -247,12 +310,53 @@ class RAGPipeline:
             return {
                 "session_id": session_id,
                 "context": context_results,
-                "response_generator": self.chat_agent.generate_response(
+                "response_generator": self._get_chat_agent_sync().generate_response(
                     query, context_results, session_id, stream=True
                 )
             }
         else:
-            response = self.chat_agent.generate_response(
+            response = self._get_chat_agent_sync().generate_response(
+                query, context_results, session_id, stream=False
+            )
+            
+            return {
+                "session_id": session_id,
+                "response": response,
+                "context": context_results,
+                "query": query
+            }
+    
+    async def chat_async(
+        self, 
+        query: str, 
+        session_id: Optional[str] = None,
+        k: int = 5,
+        search_mode: str = "adaptive",
+        stream: bool = False
+    ) -> str | Dict[str, Any]:
+        """Async version of chat method"""
+        
+        if session_id is None:
+            session_id = str(uuid.uuid4())
+        
+        context_results = self.search_with_context(
+            query, 
+            k=k, 
+            search_mode=search_mode
+        )
+        
+        chat_agent = await self._get_chat_agent()
+        
+        if stream:
+            return {
+                "session_id": session_id,
+                "context": context_results,
+                "response_generator": chat_agent.generate_response(
+                    query, context_results, session_id, stream=True
+                )
+            }
+        else:
+            response = chat_agent.generate_response(
                 query, context_results, session_id, stream=False
             )
             
@@ -280,16 +384,16 @@ class RAGPipeline:
         if not chunks:
             return {"error": "No chunks found for analysis"}
         
-        return self.chat_agent.analyze_topics(chunks)
+        return self._get_chat_agent_sync().analyze_topics(chunks)
     
     def suggest_follow_up_questions(self, query: str, results: List[Dict]) -> List[str]:
-        return self.chat_agent.suggest_questions(query, results)
+        return self._get_chat_agent_sync().suggest_questions(query, results)
     
     def get_conversation_history(self, session_id: str) -> List[Dict]:
-        return self.chat_agent.get_history(session_id)
+        return self._get_chat_agent_sync().get_history(session_id)
     
     def clear_conversation_history(self, session_id: str):
-        self.chat_agent.clear_history(session_id)
+        self._get_chat_agent_sync().clear_history(session_id)
     
     def get_conversation_summary(self, doc_id: int) -> str:
         with DB(self.db_path) as db:
@@ -307,7 +411,7 @@ class RAGPipeline:
         
         summary_query = f"Summarize this ChatGPT conversation titled '{title}'"
         
-        return self.chat_agent.generate_response(
+        return self._get_chat_agent_sync().generate_response(
             summary_query,
             [{"preview": full_text[:2000]}],
             stream=False
