@@ -1,15 +1,49 @@
 
+# Core FastAPI dependencies
 fastapi>=0.111.0
 uvicorn[standard]>=0.30.0
 pydantic>=2.7.0
 python-dotenv>=1.0.1
+python-multipart>=0.0.9
+sse-starlette>=1.6.5
+
+# Database and storage
 SQLAlchemy>=2.0.30
+psycopg2-binary>=2.9.7  # PostgreSQL adapter
+alembic>=1.12.0  # Database migrations
+
+# Vector search and ML
 faiss-cpu>=1.8.0.post1
 sentence-transformers>=3.0.1
-python-multipart>=0.0.9
-pytest>=7.4.0
 transformers>=4.36.0
 torch>=2.1.0
 accelerate>=0.25.0
 bitsandbytes>=0.41.0
-sse-starlette>=1.6.5
+llama-cpp-python>=0.2.90
+huggingface-hub>=0.20.0
+
+# Authentication and security
+google-auth>=2.23.0
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.1.1
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+python-multipart>=0.0.9
+bcrypt>=4.0.0
+
+# Background tasks and caching
+celery>=5.3.0
+redis>=5.0.0
+flower>=2.0.1  # Celery monitoring
+
+# HTTP client for API calls
+httpx>=0.25.0
+aiofiles>=23.2.0
+
+# Production and monitoring
+gunicorn>=21.2.0
+sentry-sdk[fastapi]>=1.32.0
+
+# Development and testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
