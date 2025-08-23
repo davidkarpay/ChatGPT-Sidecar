@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: sidecar
+      POSTGRES_USER: sidecar_user
+      POSTGRES_PASSWORD: sidecar_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sidecar_user -d sidecar"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis for caching and background tasks
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Main Sidecar application
+  app:
+    build: .
+    ports:
+      - "8088:8088"
+    environment:
+      - DB_URL=postgresql://sidecar_user:sidecar_password@db:5432/sidecar
+      - REDIS_URL=redis://redis:6379
+      - ENVIRONMENT=development
+      - API_KEY=dev-api-key-change-in-production
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      sh -c "
+        alembic upgrade head &&
+        uvicorn app.main:app --host 0.0.0.0 --port 8088 --reload
+      "
+
+  # Celery worker for background tasks
+  worker:
+    build: .
+    environment:
+      - DB_URL=postgresql://sidecar_user:sidecar_password@db:5432/sidecar
+      - REDIS_URL=redis://redis:6379
+      - ENVIRONMENT=development
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+    depends_on:
+      - db
+      - redis
+    command: celery -A app.tasks worker --loglevel=info
+
+  # Celery flower for monitoring background tasks
+  flower:
+    build: .
+    ports:
+      - "5555:5555"
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+    command: celery -A app.tasks flower --host=0.0.0.0 --port=5555
+
+volumes:
+  postgres_data:
+  redis_data:

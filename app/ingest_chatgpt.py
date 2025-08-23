@@ -3,6 +3,7 @@ import json, hashlib
 from pathlib import Path
 from .db import DB
 from .text import chunk_text
+from .config import ensure_under_allowed_root
 
 def sha256(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
@@ -22,7 +23,8 @@ def flatten_conversation(title: str, messages: list) -> str:
     return "\n".join(lines)
 
 def ingest_export(root: str, project_id: int = None, chunk_chars: int = 1200, overlap: int = 120) -> int:
-    rootp = Path(root)
+    # Ensure path is within allowed data root for security
+    rootp = ensure_under_allowed_root(Path(root))
     convo_file = rootp / "conversations.json"
     if not convo_file.exists():
         raise FileNotFoundError(f"conversations.json not found under {root}")

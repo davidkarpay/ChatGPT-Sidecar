@@ -2,12 +2,39 @@
 sidecar.db
 *.db
 
+# FAISS index files
+data/indexes/*.faiss
+data/indexes/*.pkl
+
 # Virtual environment
 .venv/
 venv/
 
 # Environment variables
 .env
+
+# Context files (may contain private data)
+[context*.txt
+*.context
+context_*.txt
+
+# Test artifacts and reports
+htmlcov/
+coverage.xml
+.coverage
+.pytest_cache/
+test_report.html
+*_TEST_EXECUTION_REPORT.md
+TEST_RESULTS.md
+diagnostic_results.json
+reindex_output.txt
+
+# Claude Code settings (may contain personal configs)
+.claude/settings.local.json
+
+# Temporary integration test files
+test_chat_integration.py
+test_code_structure.py
 
 # Python cache
 __pycache__/

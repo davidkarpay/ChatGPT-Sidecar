@@ -1,7 +1,7 @@
 
+import numpy as np
 from pathlib import Path
 import pickle
-import numpy as np
 import faiss
 from sentence_transformers import SentenceTransformer
 
@@ -30,9 +30,15 @@ class FaissStore:
         with open(self.ids_path, 'wb') as f:
             pickle.dump(self.ids, f)
 
+    def encode(self, texts: list[str]) -> np.ndarray:
+        """Return L2-normalized float32 embeddings for texts."""
+        embs = self.model.encode(
+            texts, batch_size=64, show_progress_bar=False, normalize_embeddings=True
+        )
+        return np.asarray(embs, dtype="float32")
+
     def _encode(self, texts):
-        embs = self.model.encode(texts, batch_size=64, show_progress_bar=False, normalize_embeddings=True)
-        return np.asarray(embs, dtype='float32')
+        return self.encode(texts)
 
     def build(self, rows):
         vecs = self._encode([r['text'] for r in rows])
