@@ -8,7 +8,9 @@
       "Bash(source:*)",
       "Bash(python test:*)",
       "Bash(rm:*)",
-      "Bash(sqlite3:*)"
+      "Bash(sqlite3:*)",
+      "Bash(git pull:*)",
+      "Bash(git merge:*)"
     ],
     "deny": [],
     "ask": []
