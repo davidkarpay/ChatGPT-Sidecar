@@ -230,6 +230,12 @@ async def require_admin_access(
     x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")
 ) -> Dict[str, Any]:
     """Require ADMIN level API access."""
+    from .config import DISABLE_ADMIN_ENDPOINTS
+    
+    # Check if admin endpoints are disabled
+    if DISABLE_ADMIN_ENDPOINTS:
+        raise HTTPException(status_code=403, detail="Admin endpoints disabled")
+    
     manager = get_api_key_manager()
     
     try:
