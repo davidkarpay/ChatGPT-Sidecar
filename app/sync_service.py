@@ -67,6 +67,85 @@ class SyncStatus:
                 "conversations_updated": row["conversations_updated"]
             }
     
+    def record_sync_start(self, user_id: int, source_url: str = None) -> str:
+        """Record the start of a sync operation."""
+        import uuid
+        sync_id = str(uuid.uuid4())
+        
+        with DB(self.db_path) as db:
+            db.conn.execute("""
+                INSERT INTO sync_history (sync_id, user_id, source_url, status)
+                VALUES (?, ?, ?, 'running')
+            """, (sync_id, user_id, source_url))
+        
+        return sync_id
+    
+    def record_sync_completion(self, sync_id: str, files_processed: int, 
+                               conversations_added: int, conversations_updated: int):
+        """Record successful sync completion."""
+        with DB(self.db_path) as db:
+            db.conn.execute("""
+                UPDATE sync_history
+                SET completed_at = CURRENT_TIMESTAMP,
+                    status = 'completed',
+                    files_processed = ?,
+                    conversations_added = ?,
+                    conversations_updated = ?
+                WHERE sync_id = ?
+            """, (files_processed, conversations_added, conversations_updated, sync_id))
+    
+    def record_sync_error(self, sync_id: str, error_message: str):
+        """Record sync failure."""
+        with DB(self.db_path) as db:
+            db.conn.execute("""
+                UPDATE sync_history
+                SET completed_at = CURRENT_TIMESTAMP,
+                    status = 'failed',
+                    error_message = ?
+                WHERE sync_id = ?
+            """, (error_message, sync_id))
+    
+    def get_sync_history(self, user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get sync history for a user."""
+        with DB(self.db_path) as db:
+            cur = db.conn.execute("""
+                SELECT sync_id, started_at, completed_at, status, error_message,
+                       files_processed, conversations_added, conversations_updated
+                FROM sync_history
+                WHERE user_id = ?
+                ORDER BY started_at DESC
+                LIMIT ?
+            """, (user_id, limit))
+            return [dict(row) for row in cur.fetchall()]
+    
+    def get_running_syncs(self, user_id: int) -> List[Dict[str, Any]]:
+        """Get currently running syncs for a user."""
+        with DB(self.db_path) as db:
+            cur = db.conn.execute("""
+                SELECT sync_id, started_at, source_url
+                FROM sync_history
+                WHERE user_id = ? AND status = 'running'
+                ORDER BY started_at DESC
+            """, (user_id,))
+            return [dict(row) for row in cur.fetchall()]
+    
+    def should_sync_user_data(self, user_id: int, interval_hours: int) -> bool:
+        """Check if user data should be synced based on interval."""
+        last_sync = self.get_last_sync(user_id)
+        
+        if not last_sync:
+            return True  # No sync history, should sync
+        
+        if last_sync['status'] != 'completed':
+            return False  # Last sync didn't complete
+        
+        # Check time since last sync
+        from datetime import datetime, timedelta
+        last_sync_time = datetime.fromisoformat(last_sync['completed_at'])
+        threshold = datetime.now() - timedelta(hours=interval_hours)
+        
+        return last_sync_time < threshold
+    
     def create_sync_record(self, user_id: int, sync_type: str = "scheduled") -> str:
         """Create a new sync record and return sync_id."""
         sync_id = f"sync_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{user_id}"
