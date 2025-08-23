@@ -11,6 +11,7 @@ from pathlib import Path
 from fastapi import FastAPI, Depends, HTTPException, Header, Request, Response
 from fastapi.responses import HTMLResponse, StreamingResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, conint, confloat
 from typing import Optional, List, Dict, Any
 from dotenv import load_dotenv
@@ -47,6 +48,23 @@ class SearchConfig:
     MAX_LAMBDA: float = 1.0
 
 app = FastAPI(title="Sidecar Context API")
+
+# Configure CORS middleware with strict allow-list
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "").split(",")
+CORS_ORIGINS = [origin.strip() for origin in CORS_ORIGINS if origin.strip()]
+
+if CORS_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=CORS_ORIGINS,  # Strict allow-list from environment
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["X-API-Key", "Authorization", "Content-Type", "Accept"],
+        max_age=86400,  # Cache preflight requests for 24 hours
+    )
+    logging.info(f"CORS enabled for origins: {CORS_ORIGINS}")
+else:
+    logging.warning("CORS_ORIGINS not configured. Cross-origin requests will be blocked.")
 
 # Include authentication router
 app.include_router(auth_router)
