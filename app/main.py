@@ -24,7 +24,7 @@ from .ingest_multi_layer import ingest_export_multi_layer
 from .search_fusion import MultiLayerSearchFusion
 from .mmr import mmr
 from .rag_pipeline import RAGPipeline
-from .chat_agent import ChatConfig
+# ChatConfig import removed - using local ChatConfigWithDB instead
 from .llm_providers import LLMProviderFactory
 from .auth import oauth_handler, session_manager, get_current_user, get_optional_user, OAUTH_ENABLED
 from .api_auth import require_read_access, require_admin_access, require_super_access, auth
@@ -92,7 +92,19 @@ store.load()
 fusion_search = MultiLayerSearchFusion(DB_PATH, EMBED_MODEL)
 
 # Chat configuration (lazy loading)
-chat_config = ChatConfig(
+from dataclasses import dataclass
+
+@dataclass
+class ChatConfigWithDB:
+    model_name: str = "EleutherAI/gpt-j-6B"
+    max_context_length: int = 2048
+    max_new_tokens: int = 512
+    temperature: float = 0.7
+    use_8bit: bool = True
+    device: Optional[str] = None
+    db_path: str = "sidecar.db"
+
+chat_config = ChatConfigWithDB(
     model_name=os.getenv("CHAT_MODEL", "EleutherAI/gpt-j-6B"),
     max_context_length=int(os.getenv("CHAT_MAX_CONTEXT", "2048")),
     max_new_tokens=int(os.getenv("CHAT_MAX_TOKENS", "512")),
