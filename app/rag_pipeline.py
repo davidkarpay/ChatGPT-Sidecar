@@ -8,19 +8,30 @@ from .db import DB
 from .vectorstore import FaissStore
 from .mmr import mmr
 from .chat_agent import ChatAgent, ChatConfig
+from .llm_providers import LLMProviderFactory, LLMProvider, LLMConfig, ProviderType
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
 class RAGPipeline:
-    def __init__(self, db_path: str, embed_model: str, chat_config: Optional[ChatConfig] = None):
+    def __init__(self, db_path: str, embed_model: str, chat_config: Optional[ChatConfig] = None, 
+                 llm_provider: Optional[LLMProvider] = None):
         self.db_path = db_path
         self.embed_model = embed_model
         self.chat_config = chat_config
-        self.chat_agent = None  # Lazy loading
+        self.llm_provider = llm_provider  # New provider-based LLM
+        self.chat_agent = None  # Legacy chat agent (for backward compatibility)
         self._chat_agent_loading = False
         self._chat_agent_lock = threading.Lock()
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="chat_model")
+        
+        # Initialize LLM provider if not provided
+        if not self.llm_provider:
+            try:
+                self.llm_provider = LLMProviderFactory.from_env()
+                logger.info(f"Initialized LLM provider: {self.llm_provider.provider_type.value}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize LLM provider: {e}, falling back to legacy chat agent")
         
         self.main_store = None
         self.precision_store = None
@@ -28,6 +39,45 @@ class RAGPipeline:
         self.context_store = None
         
         self._load_stores()
+    
+    def _generate_with_provider(self, prompt: str, stream: bool = False):
+        """Generate response using the configured LLM provider."""
+        if self.llm_provider and self.llm_provider.is_available():
+            try:
+                if stream:
+                    return self.llm_provider.generate_stream(prompt)
+                else:
+                    return self.llm_provider.generate(prompt)
+            except Exception as e:
+                logger.error(f"LLM provider error: {e}, falling back to legacy chat agent")
+                return self._generate_with_legacy_agent(prompt, stream)
+        else:
+            return self._generate_with_legacy_agent(prompt, stream)
+    
+    def _generate_with_legacy_agent(self, prompt: str, stream: bool = False):
+        """Generate response using the legacy chat agent."""
+        # This would need to be implemented based on how the legacy agent works
+        # For now, raise an error to indicate fallback is needed
+        raise RuntimeError("Legacy chat agent fallback not implemented in provider mode")
+    
+    def _build_rag_prompt(self, query: str, context_results: List[Dict]) -> str:
+        """Build RAG prompt from query and context."""
+        context_text = ""
+        for i, result in enumerate(context_results[:5], 1):  # Limit context
+            source = result.get('source', 'Unknown')
+            preview = result.get('preview', '')[:500]  # Limit length
+            context_text += f"\n[{i}] From {source}:\n{preview}\n"
+        
+        prompt = f"""You are a helpful AI assistant. Use the following context to answer the user's question. If the context doesn't contain enough information, say so.
+
+Context:
+{context_text}
+
+User Question: {query}
+
+Please provide a helpful and accurate response based on the context above."""
+        
+        return prompt
     
     def _load_stores(self):
         try:
@@ -326,15 +376,119 @@ class RAGPipeline:
                 "query": query
             }
     
+    async def chat_with_provider(
+        self, 
+        query: str, 
+        session_id: Optional[str] = None,
+        k: int = 5,
+        search_mode: str = "adaptive",
+        stream: bool = False,
+        user_identity: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """Chat method using the new LLM provider system."""
+        
+        if session_id is None:
+            session_id = str(uuid.uuid4())
+        
+        # Get context using search
+        context_results = self.search_with_context(
+            query, 
+            k=k, 
+            search_mode=search_mode
+        )
+        
+        # Build RAG prompt
+        prompt = self._build_rag_prompt(query, context_results)
+        
+        # Store the conversation in database
+        with DB(self.db_path) as db:
+            try:
+                # Get user ID from identity if available
+                user_id = user_identity.get('id', 1) if user_identity else 1
+                
+                # Store user query
+                db.store_chat_message(session_id, 'user', query, user_id=user_id)
+            except Exception as e:
+                logger.warning(f"Failed to store user message: {e}")
+        
+        try:
+            if stream:
+                # For streaming, we need to collect the response to store it
+                def response_generator():
+                    full_response = ""
+                    try:
+                        for token in self._generate_with_provider(prompt, stream=True):
+                            full_response += token
+                            yield token
+                    finally:
+                        # Store the complete response
+                        with DB(self.db_path) as db:
+                            try:
+                                user_id = user_identity.get('id', 1) if user_identity else 1
+                                db.store_chat_message(session_id, 'assistant', full_response, user_id=user_id)
+                                
+                                # Store training data if enabled
+                                model_name = getattr(self.llm_provider, 'model', 'unknown') if self.llm_provider else 'unknown'
+                                db.store_training_data(
+                                    session_id=session_id,
+                                    user_query=query,
+                                    context_json=context_results,
+                                    model_response=full_response,
+                                    model_name=model_name
+                                )
+                            except Exception as e:
+                                logger.warning(f"Failed to store assistant message: {e}")
+                
+                return {
+                    "session_id": session_id,
+                    "context": context_results,
+                    "response_generator": response_generator()
+                }
+            
+            else:
+                # Non-streaming response
+                response = self._generate_with_provider(prompt, stream=False)
+                
+                # Store the response
+                with DB(self.db_path) as db:
+                    try:
+                        user_id = user_identity.get('id', 1) if user_identity else 1
+                        db.store_chat_message(session_id, 'assistant', response, user_id=user_id)
+                        
+                        # Store training data if enabled
+                        model_name = getattr(self.llm_provider, 'model', 'unknown') if self.llm_provider else 'unknown'
+                        db.store_training_data(
+                            session_id=session_id,
+                            user_query=query,
+                            context_json=context_results,
+                            model_response=response,
+                            model_name=model_name
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to store assistant message: {e}")
+                
+                return {
+                    "session_id": session_id,
+                    "response": response,
+                    "context": context_results,
+                    "query": query
+                }
+                
+        except Exception as e:
+            logger.error(f"Chat generation error: {e}")
+            # Fallback to legacy method if provider fails
+            return await self.chat_async(query, session_id, k, search_mode, stream, user_identity)
+    
     async def chat_async(
         self, 
         query: str, 
         session_id: Optional[str] = None,
         k: int = 5,
         search_mode: str = "adaptive",
-        stream: bool = False
+        stream: bool = False,
+        user_identity: Optional[Dict] = None
     ) -> str | Dict[str, Any]:
-        """Async version of chat method"""
+        """Async version of chat method (legacy)"""
         
         if session_id is None:
             session_id = str(uuid.uuid4())
@@ -346,6 +500,10 @@ class RAGPipeline:
         )
         
         chat_agent = await self._get_chat_agent()
+        
+        # Set user identity for this request
+        if user_identity and hasattr(chat_agent, 'config'):
+            chat_agent.config.user_identity = user_identity
         
         if stream:
             return {

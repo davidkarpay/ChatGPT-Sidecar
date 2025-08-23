@@ -22,7 +22,14 @@
 <body>
   <h1>Sidecar Search</h1>
   <header>
-    <div><label>API Key</label><input id="apiKey" type="text" placeholder="X-API-Key"></div>
+    <div>
+      <label>API Key</label>
+      <input id="apiKey" type="text" placeholder="Enter your API key...">
+      <div class="row" style="margin-top: 0.25rem;">
+        <label style="font-size: 12px;"><input id="rememberMe" type="checkbox"> Remember me</label>
+        <button id="btnKeyManagement" style="padding: 0.25rem 0.5rem; font-size: 12px;">Manage Keys</button>
+      </div>
+    </div>
     <div><label>Query</label><input id="q" type="text" placeholder="Search…"></div>
     <div><label>k</label><input id="k" type="number" min="1" max="30" value="8"></div>
     <div>
@@ -42,10 +49,22 @@
   <div id="error" aria-live="polite"></div>
   <div id="results"></div>
 
+<script src="/static/secure-auth.js"></script>
 <script>
 const el = (sel)=>document.querySelector(sel);
-const apiKeyInput = el('#apiKey'); apiKeyInput.value = localStorage.getItem('API_KEY') || '';
-apiKeyInput.addEventListener('input', ()=>localStorage.setItem('API_KEY', apiKeyInput.value));
+
+// Initialize secure authentication
+const apiKeyInput = el('#apiKey');
+const rememberCheckbox = el('#rememberMe');
+const btnKeyManagement = el('#btnKeyManagement');
+
+// Set up secure API key handling
+secureAuth.initializeApiKeyInput(apiKeyInput, rememberCheckbox);
+
+// Key management button
+btnKeyManagement.addEventListener('click', () => {
+  secureAuth.showKeyManagement();
+});
 
 function escapeHTML(s){ return s.replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;', "'":'&#39;' }[m])); }
 function safeHighlight(text, terms){
@@ -82,17 +101,22 @@ function present(hit, terms){
   return d;
 }
 async function postJSON(path, body){
-  const res = await fetch(path, {
-    method: 'POST',
-    headers: {'Content-Type':'application/json','X-API-Key': localStorage.getItem('API_KEY') || ''},
-    body: JSON.stringify(body)
-  });
-  if(!res.ok){
-    let msg = await res.text();
-    try { const j = JSON.parse(msg); msg = j.detail || msg; } catch {}
-    throw new Error(msg);
+  try {
+    const res = await secureAuth.authenticatedFetch(path, {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+    
+    if(!res.ok){
+      let msg = await res.text();
+      try { const j = JSON.parse(msg); msg = j.detail || msg; } catch {}
+      throw new Error(msg);
+    }
+    return res.json();
+  } catch (error) {
+    // Show user-friendly error message
+    throw new Error(error.message || 'Request failed');
   }
-  return res.json();
 }
 function renderResults(data, query){
   const terms = (query||'').split(/\s+/).filter(Boolean);

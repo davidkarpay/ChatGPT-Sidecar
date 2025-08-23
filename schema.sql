@@ -184,6 +184,23 @@ CREATE TABLE IF NOT EXISTS sync_history (
     error_message TEXT,
     FOREIGN KEY (user_id) REFERENCES user(id)
 );
+
+-- Authentication audit log for security monitoring
+CREATE TABLE IF NOT EXISTS auth_audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    api_key_hash TEXT,  -- First 8 chars + ... for identification
+    event_type TEXT NOT NULL,  -- 'api_access', 'rate_limit_exceeded', etc.
+    ip_address TEXT,
+    endpoint TEXT,
+    success BOOLEAN NOT NULL,
+    details TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_audit_timestamp ON auth_audit_log(timestamp);
+CREATE INDEX IF NOT EXISTS idx_auth_audit_key_hash ON auth_audit_log(api_key_hash);
+CREATE INDEX IF NOT EXISTS idx_auth_audit_ip ON auth_audit_log(ip_address);
 CREATE INDEX IF NOT EXISTS idx_sync_user ON sync_history(user_id);
 CREATE INDEX IF NOT EXISTS idx_sync_status ON sync_history(status);
 
