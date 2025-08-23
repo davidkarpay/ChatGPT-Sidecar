@@ -1,886 +1,161 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sidecar Search</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-        }
-
-        .header {
-            text-align: center;
-            margin-bottom: 40px;
-        }
-
-        .header h1 {
-            color: white;
-            font-size: 2.5rem;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
-        }
-
-        .header p {
-            color: rgba(255,255,255,0.9);
-            font-size: 1.1rem;
-        }
-
-        .search-box {
-            background: white;
-            border-radius: 12px;
-            padding: 30px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
-            margin-bottom: 30px;
-        }
-
-        .api-key-section {
-            margin-bottom: 20px;
-            padding: 15px;
-            background: #f7f8fa;
-            border-radius: 8px;
-        }
-
-        .api-key-section label {
-            display: block;
-            margin-bottom: 8px;
-            color: #4a5568;
-            font-weight: 500;
-        }
-
-        .api-key-input {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #e2e8f0;
-            border-radius: 6px;
-            font-size: 14px;
-        }
-
-        .search-form {
-            display: flex;
-            gap: 10px;
-        }
-
-        .search-input {
-            flex: 1;
-            padding: 15px;
-            border: 2px solid #e2e8f0;
-            border-radius: 8px;
-            font-size: 16px;
-            transition: border-color 0.3s;
-        }
-
-        .search-input:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
-        .search-button {
-            background: #667eea;
-            color: white;
-            border: none;
-            padding: 15px 30px;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.3s;
-        }
-
-        .search-button:hover {
-            background: #5a67d8;
-        }
-
-        .search-button:disabled {
-            background: #a0aec0;
-            cursor: not-allowed;
-        }
-
-        .results {
-            display: none;
-        }
-
-        .result-item {
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-            position: relative;
-        }
-
-        .result-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: start;
-            margin-bottom: 15px;
-        }
-
-        .result-title {
-            flex: 1;
-        }
-
-        .result-rank {
-            display: inline-block;
-            background: #667eea;
-            color: white;
-            padding: 4px 10px;
-            border-radius: 20px;
-            font-size: 14px;
-            font-weight: 600;
-            margin-right: 10px;
-        }
-
-        .result-score {
-            color: #718096;
-            font-size: 14px;
-        }
-
-        .document-info {
-            background: #f7fafc;
-            padding: 10px;
-            border-radius: 6px;
-            margin-bottom: 15px;
-        }
-
-        .document-info p {
-            color: #4a5568;
-            font-size: 14px;
-            margin-bottom: 5px;
-        }
-
-        .snippet {
-            background: #f7fafc;
-            padding: 15px;
-            border-left: 4px solid #667eea;
-            margin-bottom: 15px;
-            border-radius: 4px;
-        }
-
-        .snippet-text {
-            color: #2d3748;
-            line-height: 1.6;
-            font-size: 15px;
-        }
-
-        .json-preview {
-            background: #2d3748;
-            color: #e2e8f0;
-            padding: 15px;
-            border-radius: 6px;
-            font-family: 'Monaco', 'Menlo', monospace;
-            font-size: 13px;
-            line-height: 1.5;
-            overflow-x: auto;
-            margin-bottom: 10px;
-            max-height: 200px;
-            overflow-y: auto;
-        }
-
-        .copy-button {
-            background: #48bb78;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.3s;
-        }
-
-        .copy-button:hover {
-            background: #38a169;
-        }
-
-        .copy-button.copied {
-            background: #4a5568;
-        }
-
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: white;
-        }
-
-        .loading-spinner {
-            display: inline-block;
-            width: 40px;
-            height: 40px;
-            border: 4px solid rgba(255,255,255,0.3);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 1s ease-in-out infinite;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        .error {
-            background: #feb2b2;
-            color: #742a2a;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-        }
-
-        .no-results {
-            background: white;
-            padding: 40px;
-            text-align: center;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-        }
-
-        .no-results h3 {
-            color: #4a5568;
-            margin-bottom: 10px;
-        }
-
-        .no-results p {
-            color: #718096;
-        }
-
-        .ingest-box {
-            background: white;
-            border-radius: 12px;
-            padding: 30px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
-            margin-bottom: 30px;
-        }
-
-        .ingest-header {
-            margin-bottom: 20px;
-            padding-bottom: 15px;
-            border-bottom: 2px solid #e2e8f0;
-        }
-
-        .ingest-header h2 {
-            color: #2d3748;
-            font-size: 1.5rem;
-            margin-bottom: 8px;
-        }
-
-        .ingest-header p {
-            color: #718096;
-            font-size: 14px;
-        }
-
-        .ingest-form {
-            display: grid;
-            gap: 15px;
-        }
-
-        .form-group {
-            display: grid;
-            gap: 8px;
-        }
-
-        .form-label {
-            color: #4a5568;
-            font-weight: 500;
-            font-size: 14px;
-        }
-
-        .form-input {
-            padding: 12px;
-            border: 2px solid #e2e8f0;
-            border-radius: 8px;
-            font-size: 14px;
-            transition: border-color 0.3s;
-        }
-
-        .form-input:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
-        .form-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-        }
-
-        .ingest-actions {
-            display: flex;
-            gap: 10px;
-            margin-top: 20px;
-        }
-
-        .ingest-button {
-            background: #f56565;
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.3s;
-        }
-
-        .ingest-button:hover {
-            background: #e53e3e;
-        }
-
-        .ingest-button:disabled {
-            background: #a0aec0;
-            cursor: not-allowed;
-        }
-
-        .reindex-button {
-            background: #ed8936;
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.3s;
-        }
-
-        .reindex-button:hover {
-            background: #dd6b20;
-        }
-
-        .reindex-button:disabled {
-            background: #a0aec0;
-            cursor: not-allowed;
-        }
-
-        .success {
-            background: #c6f6d5;
-            color: #22543d;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-        }
-
-        .ingest-status {
-            margin-top: 15px;
-            padding: 10px;
-            border-radius: 6px;
-            font-size: 14px;
-        }
-    </style>
+  <meta charset="utf-8">
+  <title>Sidecar Search</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font: 15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; margin: 2rem; }
+    header { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 1rem; align-items: end; }
+    input[type=text], input[type=number] { padding: .5rem; width: 100%; }
+    button { padding: .5rem .75rem; cursor: pointer; }
+    .row { display:flex; gap:.5rem; }
+    .hit { padding: 1rem; border:1px solid #e5e7eb; border-radius:.5rem; margin:.75rem 0; }
+    .title { font-weight:700; margin-bottom:.25rem; }
+    .meta { color:#6b7280; font-size:12px; margin-top:.25rem; }
+    mark { background:#fffd8a; }
+    #status { min-height: 1.2em; color:#6b7280; margin-top:.5rem; }
+    #error { color:#b91c1c; margin-top:.5rem; white-space:pre-wrap; }
+    .controls { display:flex; gap:.5rem; margin-top:.5rem; }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>🔍 Sidecar Search</h1>
-            <p>Semantic search across your document archive</p>
-        </div>
-
-        <div class="search-box">
-            <div class="api-key-section">
-                <label for="apiKey">API Key:</label>
-                <input 
-                    type="password" 
-                    id="apiKey" 
-                    class="api-key-input" 
-                    placeholder="Enter your API key"
-                    value=""
-                >
-            </div>
-            
-            <div style="margin-bottom: 15px;">
-                <label style="display: flex; align-items: center; gap: 8px; color: #4a5568; font-size: 14px; font-weight: 500;">
-                    <input type="checkbox" id="multiLayerSearch" style="margin: 0;">
-                    Enable Multi-Layer Search (precision + context layers)
-                </label>
-                <small style="color: #718096; margin-left: 20px;">Combines small chunks for facts with large chunks for context</small>
-            </div>
-            
-            <form class="search-form" id="searchForm">
-                <input 
-                    type="text" 
-                    id="searchInput" 
-                    class="search-input" 
-                    placeholder="Enter your search query..."
-                    required
-                >
-                <button type="submit" class="search-button" id="searchButton">
-                    Search
-                </button>
-            </form>
-        </div>
-
-        <div class="ingest-box">
-            <div class="ingest-header">
-                <h2>📥 Import ChatGPT Export</h2>
-                <p>Upload your ChatGPT conversation export to start searching your chat history</p>
-            </div>
-            
-            <div class="ingest-form">
-                <div class="form-group">
-                    <label class="form-label" for="exportPath">Export Folder Path:</label>
-                    <input 
-                        type="text" 
-                        id="exportPath" 
-                        class="form-input" 
-                        placeholder="/Users/yourname/Downloads/chatgpt_export_folder"
-                        title="Absolute path to your unzipped ChatGPT export folder"
-                    >
-                    <small style="color: #718096;">Enter the full path to your unzipped ChatGPT export folder (must contain conversations.json)</small>
-                </div>
-                
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label" for="projectId">Project ID:</label>
-                        <input 
-                            type="number" 
-                            id="projectId" 
-                            class="form-input" 
-                            value="1"
-                            min="1"
-                        >
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label" for="chunkChars">Chunk Size:</label>
-                        <input 
-                            type="number" 
-                            id="chunkChars" 
-                            class="form-input" 
-                            value="1200"
-                            min="100"
-                            max="5000"
-                        >
-                    </div>
-                </div>
-                
-                <div class="ingest-actions">
-                    <button id="ingestButton" class="ingest-button">
-                        Import ChatGPT Export
-                    </button>
-                    <button id="ingestMultiLayerButton" class="ingest-button" style="background: #9f7aea;">
-                        Import with Multi-Layer
-                    </button>
-                    <button id="reindexButton" class="reindex-button">
-                        Rebuild Search Index
-                    </button>
-                </div>
-                
-                <div id="ingestStatus" class="ingest-status" style="display: none;"></div>
-            </div>
-        </div>
-
-        <div class="loading" id="loading" style="display: none;">
-            <div class="loading-spinner"></div>
-            <p style="margin-top: 20px;">Searching...</p>
-        </div>
-
-        <div class="error" id="error" style="display: none;"></div>
-
-        <div class="results" id="results"></div>
+  <h1>Sidecar Search</h1>
+  <header>
+    <div>
+      <label>API Key</label>
+      <input id="apiKey" type="text" placeholder="Enter your API key...">
+      <div class="row" style="margin-top: 0.25rem;">
+        <label style="font-size: 12px;"><input id="rememberMe" type="checkbox"> Remember me</label>
+        <button id="btnKeyManagement" style="padding: 0.25rem 0.5rem; font-size: 12px;">Manage Keys</button>
+      </div>
     </div>
+    <div><label>Query</label><input id="q" type="text" placeholder="Search…"></div>
+    <div><label>k</label><input id="k" type="number" min="1" max="30" value="8"></div>
+    <div>
+      <label>Advanced (candidates / lambda)</label>
+      <div class="row">
+        <input id="candidates" type="number" min="10" max="200" value="50">
+        <input id="lambda" type="number" step="0.05" min="0" max="1" value="0.5">
+      </div>
+    </div>
+    <div class="row">
+      <button id="btnSearch">Search</button>
+      <button id="btnAdvanced">Advanced</button>
+    </div>
+  </header>
 
-    <script>
-        // Load API key from localStorage
-        const apiKeyInput = document.getElementById('apiKey');
-        const savedApiKey = localStorage.getItem('sidecar_api_key');
-        if (savedApiKey) {
-            apiKeyInput.value = savedApiKey;
-        }
+  <div id="status"></div>
+  <div id="error" aria-live="polite"></div>
+  <div id="results"></div>
 
-        // Save API key to localStorage when it changes
-        apiKeyInput.addEventListener('change', () => {
-            localStorage.setItem('sidecar_api_key', apiKeyInput.value);
-        });
+<script src="/static/secure-auth.js"></script>
+<script>
+const el = (sel)=>document.querySelector(sel);
 
-        // Handle search form submission
-        document.getElementById('searchForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const apiKey = apiKeyInput.value.trim();
-            if (!apiKey) {
-                showError('Please enter your API key');
-                return;
-            }
+// Initialize secure authentication
+const apiKeyInput = el('#apiKey');
+const rememberCheckbox = el('#rememberMe');
+const btnKeyManagement = el('#btnKeyManagement');
 
-            const query = document.getElementById('searchInput').value.trim();
-            if (!query) return;
+// Set up secure API key handling
+secureAuth.initializeApiKeyInput(apiKeyInput, rememberCheckbox);
 
-            await performSearch(query, apiKey);
-        });
+// Key management button
+btnKeyManagement.addEventListener('click', () => {
+  secureAuth.showKeyManagement();
+});
 
-        // Handle ingestion
-        document.getElementById('ingestButton').addEventListener('click', async () => {
-            const apiKey = apiKeyInput.value.trim();
-            if (!apiKey) {
-                showError('Please enter your API key');
-                return;
-            }
+function escapeHTML(s){ return s.replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;', "'":'&#39;' }[m])); }
+function safeHighlight(text, terms){
+  let safe = escapeHTML(text);
+  if(!terms.length) return safe;
+  // highlight by wrapping exact safe substrings (case-insensitive)
+  for(const t of terms){
+    if(!t) continue;
+    const re = new RegExp(`(${t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`,'gi');
+    safe = safe.replace(re, '<mark>$1</mark>');
+  }
+  return safe;
+}
+function present(hit, terms){
+  const d = document.createElement('div');
+  d.className = 'hit';
+  const title = escapeHTML(hit.source || '');
+  const preview = safeHighlight(hit.preview || '', terms);
+  d.innerHTML = `
+    <div class="title">${title} <small>score: ${Number(hit.score||0).toFixed(3)}</small></div>
+    <div class="snippet">${preview}</div>
+    <div class="meta">doc ${hit.loc.doc_id} • chunk ${hit.loc.chunk_id} • [${hit.loc.start}–${hit.loc.end}]</div>
+    <div class="controls"><button class="copy">Copy context</button></div>
+  `;
+  d.querySelector('.copy').onclick = async ()=>{
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(hit.context_json, null, 2));
+      el('#status').textContent = 'Copied context to clipboard.';
+      setTimeout(()=> el('#status').textContent = '', 1500);
+    } catch (e) {
+      el('#error').textContent = 'Copy failed. ' + (e?.message || '');
+    }
+  };
+  return d;
+}
+async function postJSON(path, body){
+  try {
+    const res = await secureAuth.authenticatedFetch(path, {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+    
+    if(!res.ok){
+      let msg = await res.text();
+      try { const j = JSON.parse(msg); msg = j.detail || msg; } catch {}
+      throw new Error(msg);
+    }
+    return res.json();
+  } catch (error) {
+    // Show user-friendly error message
+    throw new Error(error.message || 'Request failed');
+  }
+}
+function renderResults(data, query){
+  const terms = (query||'').split(/\s+/).filter(Boolean);
+  const out = el('#results'); out.innerHTML = '';
+  (data.hits || []).forEach(h => out.appendChild(present(h, terms)));
+}
+function setBusy(b){ el('#status').textContent = b ? 'Searching…' : ''; }
+function setError(msg){ el('#error').textContent = msg || ''; }
 
-            const exportPath = document.getElementById('exportPath').value.trim();
-            if (!exportPath) {
-                showError('Please enter the path to your ChatGPT export folder');
-                return;
-            }
+const runSearch = async ()=>{
+  const query = el('#q').value.trim();
+  const k = Number(el('#k').value);
+  setError(''); setBusy(true);
+  try { const data = await postJSON('/search', { query, k }); renderResults(data, query); }
+  catch(e){ setError(String(e.message||e)); }
+  finally { setBusy(false); }
+};
+const runAdvanced = async ()=>{
+  const query = el('#q').value.trim();
+  const k = Number(el('#k').value);
+  const candidates = Number(el('#candidates').value);
+  const lambda = Number(el('#lambda').value);
+  setError(''); setBusy(true);
+  try { const data = await postJSON('/search/advanced', { query, k, candidates, lambda: lambda }); renderResults(data, query); }
+  catch(e){ setError(String(e.message||e)); }
+  finally { setBusy(false); }
+};
 
-            const projectId = parseInt(document.getElementById('projectId').value) || 1;
-            const chunkChars = parseInt(document.getElementById('chunkChars').value) || 1200;
+el('#btnSearch').onclick = runSearch;
+el('#btnAdvanced').onclick = runAdvanced;
 
-            await performIngest(exportPath, projectId, chunkChars, apiKey, false);
-        });
-
-        // Handle multi-layer ingestion
-        document.getElementById('ingestMultiLayerButton').addEventListener('click', async () => {
-            const apiKey = apiKeyInput.value.trim();
-            if (!apiKey) {
-                showError('Please enter your API key');
-                return;
-            }
-
-            const exportPath = document.getElementById('exportPath').value.trim();
-            if (!exportPath) {
-                showError('Please enter the path to your ChatGPT export folder');
-                return;
-            }
-
-            const projectId = parseInt(document.getElementById('projectId').value) || 1;
-
-            await performIngest(exportPath, projectId, null, apiKey, true);
-        });
-
-        // Handle reindexing
-        document.getElementById('reindexButton').addEventListener('click', async () => {
-            const apiKey = apiKeyInput.value.trim();
-            if (!apiKey) {
-                showError('Please enter your API key');
-                return;
-            }
-
-            await performReindex(apiKey);
-        });
-
-        async function performSearch(query, apiKey) {
-            const loading = document.getElementById('loading');
-            const error = document.getElementById('error');
-            const results = document.getElementById('results');
-            const searchButton = document.getElementById('searchButton');
-            const multiLayerSearch = document.getElementById('multiLayerSearch').checked;
-
-            // Reset UI
-            loading.style.display = 'block';
-            error.style.display = 'none';
-            results.style.display = 'none';
-            results.innerHTML = '';
-            searchButton.disabled = true;
-
-            try {
-                const endpoint = multiLayerSearch ? '/search-multi-layer' : '/search';
-                const requestBody = multiLayerSearch 
-                    ? { query: query, k: 8 }
-                    : { query: query, k: 8, index_name: 'main' };
-
-                const response = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-API-Key': apiKey
-                    },
-                    body: JSON.stringify(requestBody)
-                });
-
-                if (!response.ok) {
-                    if (response.status === 401) {
-                        throw new Error('Invalid API key. Please check your API key and try again.');
-                    }
-                    throw new Error(`Search failed: ${response.statusText}`);
-                }
-
-                const data = await response.json();
-                displayResults(data, multiLayerSearch);
-
-            } catch (err) {
-                showError(err.message);
-            } finally {
-                loading.style.display = 'none';
-                searchButton.disabled = false;
-            }
-        }
-
-        function displayResults(data, isMultiLayer = false) {
-            const results = document.getElementById('results');
-            results.style.display = 'block';
-
-            if (!data.hits || data.hits.length === 0) {
-                results.innerHTML = `
-                    <div class="no-results">
-                        <h3>No results found</h3>
-                        <p>Try adjusting your search query</p>
-                    </div>
-                `;
-                return;
-            }
-
-            // Add multi-layer search info if applicable
-            let headerInfo = '';
-            if (isMultiLayer && data.layer_weights) {
-                headerInfo = `
-                    <div class="result-item" style="background: #f0f4ff; border-left: 4px solid #667eea;">
-                        <h4 style="color: #667eea; margin-bottom: 10px;">🔍 Multi-Layer Search Results</h4>
-                        <p style="margin-bottom: 8px;"><strong>Layer Weights:</strong></p>
-                        <ul style="margin-left: 20px; color: #4a5568;">
-                            <li>Precision (400 chars): ${(data.layer_weights.precision * 100).toFixed(1)}%</li>
-                            <li>Balanced (1200 chars): ${(data.layer_weights.balanced * 100).toFixed(1)}%</li>
-                            <li>Context (4800 chars): ${(data.layer_weights.context * 100).toFixed(1)}%</li>
-                        </ul>
-                        <p style="margin-top: 10px;"><strong>Total candidates:</strong> ${data.total_candidates} → <strong>Final results:</strong> ${data.hits.length}</p>
-                    </div>
-                `;
-            }
-
-            const resultsHtml = data.hits.map((hit, index) => {
-                const layerInfo = hit.layer ? `
-                    <div style="display: inline-block; background: ${getLayerColor(hit.layer)}; color: white; padding: 3px 8px; border-radius: 12px; font-size: 12px; margin-right: 8px;">
-                        ${hit.layer.toUpperCase()} LAYER
-                    </div>
-                ` : '';
-                
-                const scoreInfo = hit.weighted_score ? `
-                    <span class="result-score">
-                        Raw: ${hit.raw_score.toFixed(4)} × ${hit.layer_weight.toFixed(2)} = ${hit.weighted_score.toFixed(4)}
-                    </span>
-                ` : `<span class="result-score">Score: ${hit.score.toFixed(4)}</span>`;
-
-                return `
-                    <div class="result-item">
-                        <div class="result-header">
-                            <div class="result-title">
-                                <span class="result-rank">#${hit.rank}</span>
-                                ${layerInfo}
-                                ${scoreInfo}
-                            </div>
-                        </div>
-                        
-                        <div class="document-info">
-                            <p><strong>Document:</strong> ${escapeHtml(hit.document.title || 'Untitled')}</p>
-                            <p><strong>Type:</strong> ${hit.document.doc_type}</p>
-                            <p><strong>Document ID:</strong> ${hit.document.id}</p>
-                            <p><strong>Chunk ID:</strong> ${hit.chunk_id}</p>
-                        </div>
-                        
-                        <div class="snippet">
-                            <div class="snippet-text">${escapeHtml(hit.snippet)}</div>
-                        </div>
-                        
-                        <div class="json-preview" id="json-${index}">${escapeHtml(JSON.stringify(hit, null, 2))}</div>
-                        
-                        <button class="copy-button" onclick="copyToClipboard('json-${index}', this)">
-                            Copy JSON
-                        </button>
-                    </div>
-                `;
-            }).join('');
-
-            results.innerHTML = headerInfo + resultsHtml;
-        }
-
-        function getLayerColor(layer) {
-            switch(layer) {
-                case 'precision': return '#e53e3e';
-                case 'balanced': return '#667eea';
-                case 'context': return '#38a169';
-                default: return '#4a5568';
-            }
-        }
-
-        function copyToClipboard(elementId, button) {
-            const element = document.getElementById(elementId);
-            const text = element.textContent;
-            
-            navigator.clipboard.writeText(text).then(() => {
-                const originalText = button.textContent;
-                button.textContent = 'Copied!';
-                button.classList.add('copied');
-                
-                setTimeout(() => {
-                    button.textContent = originalText;
-                    button.classList.remove('copied');
-                }, 2000);
-            }).catch(err => {
-                console.error('Failed to copy:', err);
-                showError('Failed to copy to clipboard');
-            });
-        }
-
-        function showError(message) {
-            const error = document.getElementById('error');
-            error.textContent = message;
-            error.style.display = 'block';
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        async function performIngest(exportPath, projectId, chunkChars, apiKey, isMultiLayer = false) {
-            const ingestButton = document.getElementById('ingestButton');
-            const ingestMultiLayerButton = document.getElementById('ingestMultiLayerButton');
-            const reindexButton = document.getElementById('reindexButton');
-            const ingestStatus = document.getElementById('ingestStatus');
-            
-            // Reset and show status
-            ingestStatus.style.display = 'block';
-            ingestStatus.className = 'ingest-status';
-            ingestStatus.style.background = '#e2e8f0';
-            ingestStatus.style.color = '#4a5568';
-            ingestStatus.textContent = isMultiLayer ? 'Starting multi-layer ingestion...' : 'Starting ingestion...';
-            
-            // Disable buttons
-            ingestButton.disabled = true;
-            ingestMultiLayerButton.disabled = true;
-            reindexButton.disabled = true;
-            
-            const activeButton = isMultiLayer ? ingestMultiLayerButton : ingestButton;
-            const originalText = activeButton.textContent;
-            activeButton.textContent = isMultiLayer ? 'Creating Layers...' : 'Importing...';
-
-            try {
-                const endpoint = isMultiLayer ? '/ingest/chatgpt-export-multi-layer' : '/ingest/chatgpt-export';
-                const requestBody = isMultiLayer 
-                    ? { root_path: exportPath, project_id: projectId }
-                    : { root_path: exportPath, project_id: projectId, chunk_chars: chunkChars };
-
-                const response = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-API-Key': apiKey
-                    },
-                    body: JSON.stringify(requestBody)
-                });
-
-                if (!response.ok) {
-                    if (response.status === 401) {
-                        throw new Error('Invalid API key. Please check your API key and try again.');
-                    }
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(`Ingestion failed: ${errorData.detail || response.statusText}`);
-                }
-
-                const data = await response.json();
-                
-                // Success
-                ingestStatus.className = 'ingest-status success';
-                ingestStatus.style.background = '#c6f6d5';
-                ingestStatus.style.color = '#22543d';
-                
-                if (isMultiLayer) {
-                    ingestStatus.innerHTML = `
-                        <strong>✅ Multi-layer ingestion completed successfully!</strong><br>
-                        Processed ${data.conversations_processed} conversations.<br>
-                        <strong>Chunks created:</strong><br>
-                        • Precision layer: ${data.chunks_by_layer.precision} chunks<br>
-                        • Balanced layer: ${data.chunks_by_layer.balanced} chunks<br>
-                        • Context layer: ${data.chunks_by_layer.context} chunks<br>
-                        <strong>Total: ${data.total_chunks} chunks</strong><br>
-                        <em>Multi-layer search is now ready to use!</em>
-                    `;
-                } else {
-                    ingestStatus.innerHTML = `
-                        <strong>✅ Ingestion completed successfully!</strong><br>
-                        Imported ${data.imported_conversations} conversations.<br>
-                        <em>Next step: Click "Rebuild Search Index" to enable searching.</em>
-                    `;
-                }
-
-            } catch (err) {
-                // Error
-                ingestStatus.className = 'ingest-status error';
-                ingestStatus.style.background = '#feb2b2';
-                ingestStatus.style.color = '#742a2a';
-                ingestStatus.innerHTML = `<strong>❌ Error:</strong> ${err.message}`;
-            } finally {
-                // Re-enable buttons
-                ingestButton.disabled = false;
-                ingestMultiLayerButton.disabled = false;
-                reindexButton.disabled = false;
-                activeButton.textContent = originalText;
-            }
-        }
-
-        async function performReindex(apiKey) {
-            const ingestButton = document.getElementById('ingestButton');
-            const reindexButton = document.getElementById('reindexButton');
-            const ingestStatus = document.getElementById('ingestStatus');
-            
-            // Reset and show status
-            ingestStatus.style.display = 'block';
-            ingestStatus.className = 'ingest-status';
-            ingestStatus.style.background = '#e2e8f0';
-            ingestStatus.style.color = '#4a5568';
-            ingestStatus.textContent = 'Building search index...';
-            
-            // Disable buttons
-            ingestButton.disabled = true;
-            reindexButton.disabled = true;
-            reindexButton.textContent = 'Building Index...';
-
-            try {
-                const response = await fetch('/reindex', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-API-Key': apiKey
-                    },
-                    body: JSON.stringify({
-                        index_name: 'main'
-                    })
-                });
-
-                if (!response.ok) {
-                    if (response.status === 401) {
-                        throw new Error('Invalid API key. Please check your API key and try again.');
-                    }
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(`Reindexing failed: ${errorData.detail || response.statusText}`);
-                }
-
-                const data = await response.json();
-                
-                // Success
-                ingestStatus.className = 'ingest-status success';
-                ingestStatus.style.background = '#c6f6d5';
-                ingestStatus.style.color = '#22543d';
-                ingestStatus.innerHTML = `
-                    <strong>✅ Search index built successfully!</strong><br>
-                    Indexed ${data.vectors} text chunks.<br>
-                    <em>You can now search your ChatGPT conversations!</em>
-                `;
-
-            } catch (err) {
-                // Error
-                ingestStatus.className = 'ingest-status error';
-                ingestStatus.style.background = '#feb2b2';
-                ingestStatus.style.color = '#742a2a';
-                ingestStatus.innerHTML = `<strong>❌ Error:</strong> ${err.message}`;
-            } finally {
-                // Re-enable buttons
-                ingestButton.disabled = false;
-                reindexButton.disabled = false;
-                reindexButton.textContent = 'Rebuild Search Index';
-            }
-        }
-    </script>
+// Debounce Enter typing on query
+let deb; el('#q').addEventListener('input', ()=>{
+  clearTimeout(deb);
+  deb = setTimeout(()=>{}, 300);
+});
+el('#q').addEventListener('keydown', e=>{
+  if(e.key==='Enter'){ runSearch(); }
+});
+</script>
 </body>
 </html>

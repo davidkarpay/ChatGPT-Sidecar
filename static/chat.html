@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sidecar AI Chat</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: #fff;
+            border-bottom: 1px solid #e0e0e0;
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .header p {
+            color: #666;
+            margin-top: 0.25rem;
+        }
+
+        .main {
+            flex: 1;
+            display: flex;
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+            gap: 1rem;
+            padding: 1rem;
+        }
+
+        .chat-container {
+            flex: 2;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 120px);
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+            background: #fafafa;
+        }
+
+        .message {
+            margin-bottom: 1rem;
+            max-width: 85%;
+        }
+
+        .message.user {
+            margin-left: auto;
+        }
+
+        .message.assistant {
+            margin-right: auto;
+        }
+
+        .message-bubble {
+            padding: 0.75rem 1rem;
+            border-radius: 18px;
+            line-height: 1.4;
+        }
+
+        .message.user .message-bubble {
+            background: #007AFF;
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.assistant .message-bubble {
+            background: white;
+            color: #333;
+            border: 1px solid #e0e0e0;
+            border-bottom-left-radius: 4px;
+        }
+
+        .message-time {
+            font-size: 0.75rem;
+            color: #999;
+            margin-top: 0.25rem;
+            padding: 0 1rem;
+        }
+
+        .context-sources {
+            margin-top: 0.5rem;
+            padding: 0.5rem;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 3px solid #007AFF;
+        }
+
+        .context-sources h4 {
+            font-size: 0.8rem;
+            color: #666;
+            margin-bottom: 0.5rem;
+        }
+
+        .source-item {
+            background: white;
+            padding: 0.5rem;
+            margin-bottom: 0.25rem;
+            border-radius: 4px;
+            border: 1px solid #e0e0e0;
+            font-size: 0.85rem;
+        }
+
+        .source-title {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 0.25rem;
+        }
+
+        .source-preview {
+            color: #666;
+            line-height: 1.3;
+        }
+
+        .suggestions {
+            margin-top: 0.5rem;
+            padding: 0.5rem;
+            background: #f0f7ff;
+            border-radius: 8px;
+        }
+
+        .suggestions h4 {
+            font-size: 0.8rem;
+            color: #666;
+            margin-bottom: 0.5rem;
+        }
+
+        .suggestion-btn {
+            display: inline-block;
+            background: white;
+            border: 1px solid #007AFF;
+            color: #007AFF;
+            padding: 0.25rem 0.5rem;
+            margin: 0.125rem;
+            border-radius: 16px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .suggestion-btn:hover {
+            background: #007AFF;
+            color: white;
+        }
+
+        .chat-input {
+            padding: 1rem;
+            border-top: 1px solid #e0e0e0;
+            background: white;
+        }
+
+        .input-container {
+            display: flex;
+            gap: 0.5rem;
+            align-items: flex-end;
+        }
+
+        .input-box {
+            flex: 1;
+            min-height: 40px;
+            max-height: 120px;
+            padding: 0.75rem;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            resize: none;
+            font-family: inherit;
+            font-size: 0.95rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .input-box:focus {
+            border-color: #007AFF;
+        }
+
+        .send-btn {
+            background: #007AFF;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.2s;
+        }
+
+        .send-btn:hover:not(:disabled) {
+            background: #005ed3;
+        }
+
+        .send-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .sidebar {
+            flex: 1;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 1rem;
+            height: calc(100vh - 120px);
+            overflow-y: auto;
+        }
+
+        .sidebar h3 {
+            color: #333;
+            margin-bottom: 1rem;
+            font-size: 1.1rem;
+        }
+
+        .search-mode {
+            margin-bottom: 1.5rem;
+        }
+
+        .search-mode label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #666;
+            font-weight: 500;
+        }
+
+        .search-mode select {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+
+        .status {
+            padding: 0.5rem;
+            margin-bottom: 1rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+        }
+
+        .status.ready {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.thinking {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .typing-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: #666;
+            font-style: italic;
+        }
+
+        .typing-dots {
+            display: flex;
+            gap: 0.25rem;
+        }
+
+        .typing-dot {
+            width: 6px;
+            height: 6px;
+            background: #666;
+            border-radius: 50%;
+            animation: typing 1.4s infinite;
+        }
+
+        .typing-dot:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-dot:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes typing {
+            0%, 60%, 100% {
+                transform: translateY(0);
+                opacity: 0.4;
+            }
+            30% {
+                transform: translateY(-10px);
+                opacity: 1;
+            }
+        }
+
+        .clear-btn {
+            background: #ff3b30;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            margin-top: 1rem;
+            width: 100%;
+        }
+
+        .clear-btn:hover {
+            background: #d70015;
+        }
+
+        @media (max-width: 768px) {
+            .main {
+                flex-direction: column;
+                padding: 0.5rem;
+            }
+            
+            .sidebar {
+                order: -1;
+                height: auto;
+                max-height: 200px;
+            }
+            
+            .chat-container {
+                height: calc(100vh - 320px);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🤖 Sidecar AI Chat</h1>
+        <p>Chat with your ChatGPT conversation history using AI</p>
+    </div>
+
+    <div class="main">
+        <div class="chat-container">
+            <div class="chat-messages" id="chatMessages">
+                <div class="message assistant">
+                    <div class="message-bubble">
+                        👋 Hello! I'm here to help you explore and understand your ChatGPT conversation history. Ask me anything about your past conversations!
+                    </div>
+                    <div class="message-time">Just now</div>
+                </div>
+            </div>
+            <div class="chat-input">
+                <div class="input-container">
+                    <textarea 
+                        id="messageInput" 
+                        class="input-box" 
+                        placeholder="Ask about your conversations..."
+                        rows="1"></textarea>
+                    <button id="sendBtn" class="send-btn">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="sidebar">
+            <h3>Settings</h3>
+            
+            <div class="status ready" id="status">
+                Ready to chat
+            </div>
+
+            <div class="search-mode">
+                <label for="searchMode">Search Mode:</label>
+                <select id="searchMode">
+                    <option value="adaptive">Adaptive (Recommended)</option>
+                    <option value="multi_layer">Multi-Layer</option>
+                    <option value="basic">Basic</option>
+                </select>
+            </div>
+
+            <div class="search-mode">
+                <label for="contextK">Context Sources:</label>
+                <select id="contextK">
+                    <option value="3">3 sources</option>
+                    <option value="5" selected>5 sources</option>
+                    <option value="8">8 sources</option>
+                    <option value="10">10 sources</option>
+                </select>
+            </div>
+
+            <button class="clear-btn" id="clearBtn">Clear Conversation</button>
+        </div>
+    </div>
+
+    <script>
+        class SidecarChat {
+            constructor() {
+                this.sessionId = this.generateSessionId();
+                this.isTyping = false;
+                this.apiKey = 'change-me'; // You should update this
+                
+                this.messageInput = document.getElementById('messageInput');
+                this.sendBtn = document.getElementById('sendBtn');
+                this.chatMessages = document.getElementById('chatMessages');
+                this.status = document.getElementById('status');
+                this.searchMode = document.getElementById('searchMode');
+                this.contextK = document.getElementById('contextK');
+                this.clearBtn = document.getElementById('clearBtn');
+                
+                this.initEventListeners();
+            }
+            
+            generateSessionId() {
+                return 'session-' + Math.random().toString(36).substr(2, 9);
+            }
+            
+            initEventListeners() {
+                this.sendBtn.addEventListener('click', () => this.sendMessage());
+                this.messageInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        this.sendMessage();
+                    }
+                });
+                
+                this.messageInput.addEventListener('input', () => {
+                    this.autoResize();
+                });
+                
+                this.clearBtn.addEventListener('click', () => this.clearConversation());
+            }
+            
+            autoResize() {
+                this.messageInput.style.height = 'auto';
+                this.messageInput.style.height = Math.min(this.messageInput.scrollHeight, 120) + 'px';
+            }
+            
+            async sendMessage() {
+                const message = this.messageInput.value.trim();
+                if (!message || this.isTyping) return;
+                
+                this.addMessage('user', message);
+                this.messageInput.value = '';
+                this.autoResize();
+                this.setTyping(true);
+                
+                try {
+                    await this.streamChatResponse(message);
+                } catch (error) {
+                    console.error('Chat error:', error);
+                    this.addMessage('assistant', 'Sorry, I encountered an error. Please try again.');
+                    this.setStatus('error', 'Error occurred');
+                } finally {
+                    this.setTyping(false);
+                }
+            }
+            
+            async streamChatResponse(message) {
+                const response = await fetch('/chat/stream', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-API-Key': this.apiKey
+                    },
+                    body: JSON.stringify({
+                        query: message,
+                        session_id: this.sessionId,
+                        k: parseInt(this.contextK.value),
+                        search_mode: this.searchMode.value
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                
+                let currentResponse = '';
+                let context = null;
+                let suggestions = [];
+                
+                const messageElement = this.addMessage('assistant', '', true);
+                const messageContent = messageElement.querySelector('.message-bubble');
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                
+                                if (data.type === 'context') {
+                                    context = data.data;
+                                } else if (data.type === 'token') {
+                                    currentResponse += data.data;
+                                    messageContent.innerHTML = this.formatMessage(currentResponse);
+                                    this.scrollToBottom();
+                                } else if (data.type === 'suggestions') {
+                                    suggestions = data.data;
+                                } else if (data.type === 'done') {
+                                    this.addContextAndSuggestions(messageElement, context, suggestions);
+                                    this.setStatus('ready', 'Ready to chat');
+                                }
+                            } catch (e) {
+                                console.warn('Error parsing SSE data:', e);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            addMessage(sender, content, isStreaming = false) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${sender}`;
+                
+                const bubble = document.createElement('div');
+                bubble.className = 'message-bubble';
+                bubble.innerHTML = isStreaming ? this.getTypingIndicator() : this.formatMessage(content);
+                
+                const time = document.createElement('div');
+                time.className = 'message-time';
+                time.textContent = new Date().toLocaleTimeString();
+                
+                messageDiv.appendChild(bubble);
+                messageDiv.appendChild(time);
+                
+                this.chatMessages.appendChild(messageDiv);
+                this.scrollToBottom();
+                
+                return messageDiv;
+            }
+            
+            addContextAndSuggestions(messageElement, context, suggestions) {
+                if (context && context.length > 0) {
+                    const contextDiv = document.createElement('div');
+                    contextDiv.className = 'context-sources';
+                    contextDiv.innerHTML = `
+                        <h4>📚 Sources from your conversations:</h4>
+                        ${context.map(item => `
+                            <div class="source-item">
+                                <div class="source-title">${item.source}</div>
+                                <div class="source-preview">${item.preview}</div>
+                            </div>
+                        `).join('')}
+                    `;
+                    messageElement.appendChild(contextDiv);
+                }
+                
+                if (suggestions && suggestions.length > 0) {
+                    const suggestionsDiv = document.createElement('div');
+                    suggestionsDiv.className = 'suggestions';
+                    suggestionsDiv.innerHTML = `
+                        <h4>💡 You might also ask:</h4>
+                        ${suggestions.map(suggestion => `
+                            <span class="suggestion-btn" onclick="sidecarChat.askSuggestion('${suggestion.replace(/'/g, "\\'")}')">${suggestion}</span>
+                        `).join('')}
+                    `;
+                    messageElement.appendChild(suggestionsDiv);
+                }
+            }
+            
+            askSuggestion(suggestion) {
+                this.messageInput.value = suggestion;
+                this.sendMessage();
+            }
+            
+            formatMessage(content) {
+                return content
+                    .replace(/\n/g, '<br>')
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\*(.*?)\*/g, '<em>$1</em>');
+            }
+            
+            getTypingIndicator() {
+                return `
+                    <div class="typing-indicator">
+                        <span>AI is thinking</span>
+                        <div class="typing-dots">
+                            <div class="typing-dot"></div>
+                            <div class="typing-dot"></div>
+                            <div class="typing-dot"></div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            setTyping(isTyping) {
+                this.isTyping = isTyping;
+                this.sendBtn.disabled = isTyping;
+                
+                if (isTyping) {
+                    this.setStatus('thinking', 'AI is thinking...');
+                } else {
+                    this.setStatus('ready', 'Ready to chat');
+                }
+            }
+            
+            setStatus(type, message) {
+                this.status.className = `status ${type}`;
+                this.status.textContent = message;
+            }
+            
+            async clearConversation() {
+                if (!confirm('Clear this conversation? This action cannot be undone.')) {
+                    return;
+                }
+                
+                try {
+                    await fetch(`/chat/history/${this.sessionId}`, {
+                        method: 'DELETE',
+                        headers: {
+                            'X-API-Key': this.apiKey
+                        }
+                    });
+                    
+                    // Clear UI
+                    this.chatMessages.innerHTML = `
+                        <div class="message assistant">
+                            <div class="message-bubble">
+                                👋 Hello! I'm here to help you explore and understand your ChatGPT conversation history. Ask me anything about your past conversations!
+                            </div>
+                            <div class="message-time">Just now</div>
+                        </div>
+                    `;
+                    
+                    // Generate new session
+                    this.sessionId = this.generateSessionId();
+                    this.setStatus('ready', 'Conversation cleared');
+                    
+                } catch (error) {
+                    console.error('Clear error:', error);
+                    this.setStatus('error', 'Failed to clear conversation');
+                }
+            }
+            
+            scrollToBottom() {
+                this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+            }
+        }
+        
+        // Initialize the chat when page loads
+        let sidecarChat;
+        document.addEventListener('DOMContentLoaded', () => {
+            sidecarChat = new SidecarChat();
+        });
+    </script>
+</body>
+</html>

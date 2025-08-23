@@ -1,0 +1,279 @@
+name: Chat Features Test Suite
+
+on:
+  push:
+    branches: [ main, develop, feat/ui-and-mmr ]
+    paths:
+      - 'app/chat_agent.py'
+      - 'app/rag_pipeline.py' 
+      - 'app/main.py'
+      - 'tests/test_chat_*.py'
+      - 'requirements.txt'
+      - '.github/workflows/test-chat-features.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'app/chat_agent.py'
+      - 'app/rag_pipeline.py'
+      - 'app/main.py' 
+      - 'tests/test_chat_*.py'
+      - 'requirements.txt'
+
+jobs:
+  test-chat-unit:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.9, 3.10, 3.11]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest-cov pytest-html pytest-xdist pytest-timeout pytest-mock
+    
+    - name: Run unit tests
+      run: |
+        python -m pytest tests/test_chat_unit.py -v --cov=app --cov-report=xml
+    
+    - name: Upload coverage to Codecov
+      if: matrix.python-version == '3.11'
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        name: chat-unit-tests
+
+  test-chat-integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.11
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest-cov pytest-html pytest-xdist pytest-timeout pytest-mock
+    
+    - name: Run integration tests
+      run: |
+        python -m pytest tests/test_chat_integration.py tests/test_chat_api_contracts.py -v --cov=app
+  
+  test-chat-search:
+    name: Search & RAG Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.11
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest-cov pytest-html pytest-xdist pytest-timeout pytest-mock
+    
+    - name: Run search functionality tests
+      run: |
+        python -m pytest tests/test_chat_search.py -v --cov=app
+  
+  test-chat-conversations:
+    name: Conversation Management Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.11
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest-cov pytest-html pytest-xdist pytest-timeout pytest-mock
+    
+    - name: Run conversation management tests
+      run: |
+        python -m pytest tests/test_chat_conversations.py -v --cov=app
+
+  test-chat-edge-cases:
+    name: Edge Cases & Error Handling
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.11
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest-cov pytest-html pytest-xdist pytest-timeout pytest-mock
+    
+    - name: Run edge case tests
+      run: |
+        python -m pytest tests/test_chat_edge_cases.py -v --cov=app
+
+  test-chat-performance:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.11
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest-cov pytest-html pytest-xdist pytest-timeout pytest-mock psutil
+    
+    - name: Run performance tests
+      run: |
+        python -m pytest tests/test_chat_performance.py -v -m "not slow"
+      timeout-minutes: 10
+
+  test-chat-models:
+    name: Model Integration Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.11
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest-cov pytest-html pytest-xdist pytest-timeout pytest-mock
+    
+    - name: Run model integration tests
+      run: |
+        python -m pytest tests/test_chat_models.py -v -m "not slow" --cov=app
+
+  test-comprehensive:
+    name: Comprehensive Test Suite
+    runs-on: ubuntu-latest
+    needs: [test-chat-unit, test-chat-integration, test-chat-search, test-chat-conversations, test-chat-edge-cases]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.11
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest-cov pytest-html pytest-xdist pytest-timeout pytest-mock
+    
+    - name: Run complete chat test suite
+      run: |
+        python tests/run_tests.py all --verbose --coverage
+    
+    - name: Generate test report
+      run: |
+        python -m pytest tests/test_chat_*.py --html=chat-test-report.html --self-contained-html --cov=app --cov-report=html
+    
+    - name: Upload test artifacts
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: test-results
+        path: |
+          chat-test-report.html
+          htmlcov/
+          coverage.xml
+    
+    - name: Check test coverage
+      run: |
+        python -m pytest tests/test_chat_*.py --cov=app --cov-fail-under=70
+
+  validate-test-suite:
+    name: Validate Test Suite Quality
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.11
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest-cov pytest-html pytest-xdist pytest-timeout pytest-mock
+        pip install flake8 black isort
+    
+    - name: Lint test code
+      run: |
+        flake8 tests/ --count --select=E9,F63,F7,F82 --show-source --statistics
+        black --check tests/
+        isort --check-only tests/
+    
+    - name: Validate test structure
+      run: |
+        python -c "
+        import os
+        test_files = [f for f in os.listdir('tests/') if f.startswith('test_chat_') and f.endswith('.py')]
+        expected_files = ['test_chat_unit.py', 'test_chat_integration.py', 'test_chat_performance.py', 
+                         'test_chat_edge_cases.py', 'test_chat_api_contracts.py', 'test_chat_search.py',
+                         'test_chat_conversations.py', 'test_chat_models.py']
+        missing = set(expected_files) - set(test_files)
+        if missing:
+            print(f'Missing test files: {missing}')
+            exit(1)
+        print('✅ All expected test files present')
+        "
+    
+    - name: Test discovery validation
+      run: |
+        python -m pytest --collect-only tests/test_chat_*.py | grep "test session starts"
