@@ -1,0 +1,243 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Sidecar Search</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font: 15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; margin: 2rem; }
+    header { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 1rem; align-items: end; }
+    input[type=text], input[type=number], select { padding: .5rem; width: 100%; }
+    button { padding: .5rem .75rem; cursor: pointer; margin: 0.2rem; }
+    .row { display:flex; gap:.5rem; }
+    .hit { padding: 1rem; border:1px solid #e5e7eb; border-radius:.5rem; margin:.75rem 0; }
+    .title { font-weight:700; margin-bottom:.25rem; }
+    .meta { color:#6b7280; font-size:12px; margin-top:.25rem; }
+    mark { background:#fffd8a; }
+    #status { min-height: 1.2em; color:#6b7280; margin-top:.5rem; }
+    #error { color:#b91c1c; margin-top:.5rem; white-space:pre-wrap; }
+    .controls { display:flex; gap:.5rem; margin-top:.5rem; }
+    .search-mode { background: #f0f9ff; padding: 1rem; border-radius: 0.5rem; margin: 1rem 0; }
+    .mode-button { background: #3b82f6; color: white; border: none; border-radius: 0.25rem; }
+    .mode-button.active { background: #1d4ed8; }
+    .mode-button:disabled { background: #9ca3af; }
+    .advanced-controls { display: none; }
+    .layer-info { font-size: 11px; color: #6b7280; margin-top: 0.25rem; }
+  </style>
+</head>
+<body>
+  <h1>Sidecar Search</h1>
+  
+  <div class="search-mode">
+    <div><strong>Search Mode:</strong></div>
+    <div class="row" style="margin-top: 0.5rem;">
+      <button id="modeBasic" class="mode-button active">Basic</button>
+      <button id="modeAdvanced" class="mode-button">Advanced MMR</button>
+      <button id="modeMultiLayer" class="mode-button">Multi-Layer</button>
+      <button id="modeLayer" class="mode-button">Specific Layer</button>
+    </div>
+    <div id="modeDescription" class="layer-info">Basic FAISS search (requires main index)</div>
+  </div>
+
+  <header>
+    <div><label>API Key</label><input id="apiKey" type="text" placeholder="X-API-Key"></div>
+    <div><label>Query</label><input id="q" type="text" placeholder="Search…"></div>
+    <div><label>Results (k)</label><input id="k" type="number" min="1" max="30" value="8"></div>
+    
+    <div id="advancedControls" class="advanced-controls">
+      <label>Advanced Controls</label>
+      <div class="row">
+        <input id="candidates" type="number" min="10" max="200" value="50" title="FAISS candidates">
+        <input id="lambda" type="number" step="0.05" min="0" max="1" value="0.5" title="Lambda (diversity)">
+      </div>
+    </div>
+    
+    <div id="layerControls" class="advanced-controls">
+      <label>Layer Selection</label>
+      <select id="layerSelect">
+        <option value="precision">Precision (short chunks)</option>
+        <option value="balanced">Balanced (medium chunks)</option>
+        <option value="context">Context (long chunks)</option>
+      </select>
+    </div>
+    
+    <div>
+      <button id="btnSearch" class="mode-button">Search</button>
+    </div>
+  </header>
+
+  <div id="status"></div>
+  <div id="error" aria-live="polite"></div>
+  <div id="results"></div>
+
+<script src="/static/secure-auth.js"></script>
+<script>
+const el = (sel)=>document.querySelector(sel);
+const apiKeyInput = el('#apiKey'); 
+
+// Initialize secure authentication (no remember checkbox in enhanced mode)
+secureAuth.initializeApiKeyInput(apiKeyInput);
+
+let currentMode = 'basic';
+
+// Mode switching
+el('#modeBasic').onclick = () => setMode('basic');
+el('#modeAdvanced').onclick = () => setMode('advanced');
+el('#modeMultiLayer').onclick = () => setMode('multilayer');
+el('#modeLayer').onclick = () => setMode('layer');
+
+function setMode(mode) {
+  currentMode = mode;
+  
+  // Update button states
+  document.querySelectorAll('.mode-button').forEach(btn => btn.classList.remove('active'));
+  el(`#mode${mode.charAt(0).toUpperCase() + mode.slice(1).replace('layer', 'Layer')}`).classList.add('active');
+  
+  // Show/hide controls
+  el('#advancedControls').style.display = mode === 'advanced' ? 'block' : 'none';
+  el('#layerControls').style.display = mode === 'layer' ? 'block' : 'none';
+  
+  // Update description
+  const descriptions = {
+    basic: 'Basic FAISS search (requires main index)',
+    advanced: 'MMR-enhanced search for diverse results (requires main index)', 
+    multilayer: 'Combines precision, balanced, and context layers',
+    layer: 'Search specific layer by chunk size'
+  };
+  el('#modeDescription').textContent = descriptions[mode];
+}
+
+function escapeHTML(s){ return s.replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;', "'":'&#39;' }[m])); }
+function safeHighlight(text, terms){
+  let safe = escapeHTML(text);
+  if(!terms.length) return safe;
+  for(const t of terms){
+    if(!t) continue;
+    const re = new RegExp(`(${t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`,'gi');
+    safe = safe.replace(re, '<mark>$1</mark>');
+  }
+  return safe;
+}
+
+function present(hit, terms){
+  const d = document.createElement('div');
+  d.className = 'hit';
+  const title = escapeHTML(hit.source || hit.document?.title || '');
+  const preview = safeHighlight(hit.preview || hit.snippet || '', terms);
+  
+  // Handle different response formats
+  const loc = hit.loc || hit.offset || {};
+  const docId = loc.doc_id || hit.document?.id || 'N/A';
+  const chunkId = loc.chunk_id || hit.chunk_id || 'N/A';
+  const score = hit.score || hit.weighted_score || 0;
+  
+  d.innerHTML = `
+    <div class="title">${title} <small>score: ${Number(score).toFixed(3)}</small></div>
+    <div class="snippet">${preview}</div>
+    <div class="meta">doc ${docId} • chunk ${chunkId} • [${loc.start || '?'}–${loc.end || '?'}]</div>
+    <div class="controls"><button class="copy">Copy context</button></div>
+  `;
+  
+  d.querySelector('.copy').onclick = async ()=>{
+    try {
+      const context = hit.context_json || { context: [{ doc: title, quote: hit.snippet || hit.preview }] };
+      await navigator.clipboard.writeText(JSON.stringify(context, null, 2));
+      el('#status').textContent = 'Copied context to clipboard.';
+      setTimeout(()=> el('#status').textContent = '', 1500);
+    } catch (e) {
+      el('#error').textContent = 'Copy failed. ' + (e?.message || '');
+    }
+  };
+  return d;
+}
+
+async function postJSON(path, body){
+  try {
+    const res = await secureAuth.authenticatedFetch(path, {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+    
+    if(!res.ok){
+      let msg = await res.text();
+      try { const j = JSON.parse(msg); msg = j.detail || msg; } catch {}
+      throw new Error(msg);
+    }
+    return res.json();
+  } catch (error) {
+    // Show user-friendly error message
+    throw new Error(error.message || 'Request failed');
+  }
+}
+
+function renderResults(data, query){
+  const terms = (query||'').split(/\s+/).filter(Boolean);
+  const out = el('#results'); out.innerHTML = '';
+  const hits = data.hits || [];
+  
+  if (hits.length === 0) {
+    out.innerHTML = '<div class="hit" style="background:#fef2f2; border-color:#f87171;">No results found. Try a different search mode or check if indexes exist.</div>';
+    return;
+  }
+  
+  hits.forEach(h => out.appendChild(present(h, terms)));
+  
+  // Add performance info
+  if (data.layer_weights || data.total_candidates) {
+    const info = document.createElement('div');
+    info.className = 'layer-info';
+    info.style.marginTop = '1rem';
+    if (data.layer_weights) {
+      info.innerHTML = `Multi-layer: ${Object.entries(data.layer_weights).map(([k,v]) => `${k}: ${(v*100).toFixed(1)}%`).join(', ')}`;
+    }
+    out.appendChild(info);
+  }
+}
+
+function setBusy(b){ el('#status').textContent = b ? 'Searching…' : ''; }
+function setError(msg){ el('#error').textContent = msg || ''; }
+
+const runSearch = async ()=>{
+  const query = el('#q').value.trim();
+  if (!query) return;
+  
+  const k = Number(el('#k').value);
+  setError(''); setBusy(true);
+  
+  try {
+    let data;
+    switch(currentMode) {
+      case 'basic':
+        data = await postJSON('/search', { query, k });
+        break;
+      case 'advanced':
+        const candidates = Number(el('#candidates').value);
+        const lambda = Number(el('#lambda').value);
+        data = await postJSON('/search/advanced', { query, k, candidates, lambda });
+        break;
+      case 'multilayer':
+        data = await postJSON('/search-multi-layer', { query, k });
+        break;
+      case 'layer':
+        const indexName = el('#layerSelect').value;
+        data = await postJSON('/search', { query, k, index_name: indexName });
+        break;
+    }
+    renderResults(data, query);
+  } catch(e) { 
+    setError(String(e.message||e));
+  } finally { 
+    setBusy(false); 
+  }
+};
+
+el('#btnSearch').onclick = runSearch;
+el('#q').addEventListener('keydown', e=>{
+  if(e.key==='Enter'){ runSearch(); }
+});
+
+// Initialize
+setMode('basic');
+</script>
+</body>
+</html>
