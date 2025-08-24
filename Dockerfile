@@ -8,8 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     # Where we will persist DB + FAISS on Railway volume
     DATA_ROOT=/data \
     FAISS_INDEX_DIR=/data/indexes \
-    SQLITE_DB=/data/sidecar.db \
-    PORT=8080
+    SQLITE_DB=/data/sidecar.db
 
 # System deps (slim image needs compilers for some wheels; libgomp for faiss)
 RUN apt-get update && apt-get install -y --no-install-recommends \
