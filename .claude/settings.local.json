@@ -65,6 +65,7 @@
       "Bash(gh pr merge:*)",
       "Bash(git branch:*)",
       "Bash(git clean:*)",
+      "Bash(git stash push:*)",
       "Bash(test:*)"
     ],
     "deny": [],
