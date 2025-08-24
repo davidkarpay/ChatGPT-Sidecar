@@ -9,6 +9,19 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from dataclasses import dataclass
 import json
 
+# Try to import FastLLMAgent for quantized model support
+try:
+    from .fast_llm_agent import FastLLMAgent, FastLLMConfig, LLAMA_CPP_AVAILABLE
+    # Legacy compatibility
+    MistralAgent = FastLLMAgent
+    MistralConfig = FastLLMConfig
+except ImportError:
+    FastLLMAgent = None
+    FastLLMConfig = None
+    MistralAgent = None
+    MistralConfig = None
+    LLAMA_CPP_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 def configure_openmp_for_apple_silicon():
@@ -160,6 +173,7 @@ class ChatConfig:
     repetition_penalty: float = 1.1
     use_8bit: bool = True
     device: Optional[str] = None
+    db_path: Optional[str] = None  # Database path for training data collection
     
     def __post_init__(self):
         """Auto-detect device if not specified"""
@@ -178,7 +192,42 @@ class ChatAgent:
         self.tokenizer = None
         self.model = None
         self.conversation_history = {}
-        self._load_model()
+        self.backend = os.getenv('CHAT_BACKEND', 'transformers')
+        self.mistral_agent = None
+        
+        # Try to use Mistral agent if configured
+        if self.backend == 'llama_cpp' and LLAMA_CPP_AVAILABLE:
+            self._load_mistral_agent()
+        else:
+            self._load_model()
+    
+    def _load_mistral_agent(self):
+        """Load FastLLM agent with quantized model"""
+        logger.info("Loading FastLLM agent with quantized model")
+        try:
+            # Create FastLLM config from environment
+            fast_llm_config = FastLLMConfig(
+                preset=os.getenv('CHAT_MODEL_PRESET', 'ultra_fast'),
+                n_ctx=int(os.getenv('CHAT_MAX_CONTEXT', '2048')),
+                n_threads=int(os.getenv('CHAT_N_THREADS', '4')),
+                n_batch=int(os.getenv('CHAT_N_BATCH', '512')),
+                n_gpu_layers=0,  # Always 0 for CPU-only
+                use_mlock=os.getenv('CHAT_USE_MLOCK', 'true').lower() == 'true',
+                temperature=float(os.getenv('CHAT_TEMPERATURE', '0.7')),
+                max_tokens=int(os.getenv('CHAT_MAX_TOKENS', '256')),
+                db_path=self.config.db_path,  # Pass database path for training data collection
+                collect_training_data=True,
+            )
+            
+            # Initialize FastLLM agent
+            self.mistral_agent = FastLLMAgent(fast_llm_config)
+            logger.info("FastLLM agent loaded successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to load FastLLM agent: {e}")
+            logger.info("Falling back to transformers backend")
+            self.backend = 'transformers'
+            self._load_model()
     
     def _load_model(self):
         """Load model with comprehensive error handling and fallback strategies"""
@@ -407,6 +456,11 @@ class ChatAgent:
         stream: bool = False
     ) -> Generator[str, None, None] | str:
         
+        # Use Mistral agent if available
+        if self.mistral_agent:
+            return self.mistral_agent.generate_response(query, context, session_id, stream)
+        
+        # Otherwise use transformers backend
         prompt = self._build_prompt(query, context, session_id)
         
         inputs = self.tokenizer(
@@ -566,6 +620,11 @@ class ChatAgent:
             })
     
     def analyze_topics(self, chunks: List[Dict]) -> Dict[str, Any]:
+        # Use Mistral agent if available
+        if self.mistral_agent:
+            return self.mistral_agent.analyze_topics(chunks)
+        
+        # Otherwise use transformers backend
         prompt = self._build_analysis_prompt(chunks)
         
         inputs = self.tokenizer(
@@ -616,6 +675,11 @@ class ChatAgent:
         return "".join(prompt_parts)
     
     def suggest_questions(self, query: str, results: List[Dict]) -> List[str]:
+        # Use Mistral agent if available
+        if self.mistral_agent:
+            return self.mistral_agent.suggest_questions(query, results)
+        
+        # Otherwise use transformers backend
         prompt = self._build_suggestion_prompt(query, results)
         
         inputs = self.tokenizer(
@@ -669,8 +733,25 @@ class ChatAgent:
         return "".join(prompt_parts)
     
     def clear_history(self, session_id: str):
+        if self.mistral_agent:
+            self.mistral_agent.clear_history(session_id)
         if session_id in self.conversation_history:
             del self.conversation_history[session_id]
     
     def get_history(self, session_id: str) -> List[Dict]:
+        if self.mistral_agent:
+            return self.mistral_agent.get_history(session_id)
         return self.conversation_history.get(session_id, [])
+    
+    def cleanup(self):
+        """Clean up resources"""
+        if self.mistral_agent:
+            self.mistral_agent.cleanup()
+        if self.model:
+            del self.model
+            self.model = None
+        if self.tokenizer:
+            del self.tokenizer
+            self.tokenizer = None
+        self.conversation_history.clear()
+        cleanup_memory()

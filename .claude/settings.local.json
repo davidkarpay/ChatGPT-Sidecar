@@ -60,7 +60,13 @@
       "Bash(CORS_ORIGINS=\"http://localhost:3000,https://app.example.com\" python -c \"import os; os.environ[''CORS_ORIGINS''] = ''http://localhost:3000,https://app.example.com''; from app.main import app, CORS_ORIGINS; print(f''CORS configuration: {CORS_ORIGINS}'')\")",
       "Bash(git fetch:*)",
       "Bash(CORS_ORIGINS=\"http://localhost:3000,https://app.example.com\" python -c \"from app.main import app, CORS_ORIGINS; print(f''✓ CORS configured: {CORS_ORIGINS}'')\")",
-      "Bash(DISABLE_ADMIN_ENDPOINTS=true python -c \"from app.config import DISABLE_ADMIN_ENDPOINTS; print(f''✓ Admin endpoints disabled: {DISABLE_ADMIN_ENDPOINTS}'')\")"
+      "Bash(DISABLE_ADMIN_ENDPOINTS=true python -c \"from app.config import DISABLE_ADMIN_ENDPOINTS; print(f''✓ Admin endpoints disabled: {DISABLE_ADMIN_ENDPOINTS}'')\")",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(git branch:*)",
+      "Bash(git clean:*)",
+      "Bash(git stash push:*)",
+      "Bash(test:*)"
     ],
     "deny": [],
     "ask": []
